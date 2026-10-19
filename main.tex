@@ -1,0 +1,36 @@
+\documentclass[12pt,a4paper]{report}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[english]{babel}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{siunitx}
+\usepackage[hidelinks]{hyperref}
+\usepackage{cleveref}
+
+\hyphenpenalty=10000
+\exhyphenpenalty=10000
+\emergencystretch=3em
+
+\graphicspath{{figures/}}
+
+\title{Approximating the Sine Function on FPGA\\
+       \large IEEE~754 Single-Precision, Pipelined AXI4-Stream Implementation}
+\author{Student: Diaconu Mihai\\Supervising professor: Lazea Dragos Bogdan\\\\Technical University of Cluj-Napoca\\Faculty of Automation and Computer Science}
+\date{\today}
+
+\begin{document}
+\maketitle
+\tableofcontents
+
+\input{chapters/01-introduction}
+\input{chapters/02-bibliographic-study}
+
+\bibliographystyle{ieeetr}
+\bibliography{references}
+
+\end{document}

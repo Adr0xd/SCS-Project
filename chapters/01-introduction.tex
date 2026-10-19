@@ -1,0 +1,60 @@
+% !TEX root = ../main.tex
+
+\chapter{Introduction}
+\label{ch:introduction}
+
+\section{Problem description}
+\label{sec:problem}
+The evaluation of non-linear elementary functions, in particular trigonometric
+functions such as the sine function, $\sin(x)$, is a frequent operation in
+digital systems. Applications such as machine learning and digital signal
+processing can often make do with fast, approximate evaluations of these
+functions~\cite{muller2020}. Muller~\cite{muller2020} also reviews hardware
+designs built for this purpose, such as a table-based sine approximation
+proposed for a spread-spectrum frequency synthesizer and an elementary-function
+accelerator for a neuromorphic chip. This project considers real-valued inputs
+represented in the 32-bit single-precision (binary32) floating-point format
+defined by the IEEE~754 standard~\cite{ieee754}.
+
+
+\section{Motivation}
+\label{sec:motivation}
+Elementary functions such as $\sin(x)$ cannot be computed exactly with a finite
+number of arithmetic operations. Any implementation, either software or hardware,
+can only approximate them~\cite{muller2020}. The precision of the result therefore
+becomes a design decision. General-purpose implementations aim for results as
+close as possible to the exact value, while many applications can tolerate a less
+accurate result if it is obtained faster~\cite{muller2020}.
+
+Choosing how to make this trade-off is not straightforward. In his review of
+approximation techniques, Muller~\cite{muller2020} does not recommend a single
+method: the most suitable one depends on the function being evaluated, the
+required accuracy, the implementation technology and the memory available for
+tables. He also notes that the methods differ in versatility, accuracy and
+scalability, which makes a general comparison difficult.
+
+On a Field-Programmable Gate Array (FPGA), this trade-off can be measured
+directly. Each approximation method has a concrete cost in look-up tables (LUTs),
+DSP slices, block RAM, latency and maximum clock frequency, and the best choice
+can change with the required precision. For example, Muller reports work in which
+CORDIC proved to be a good candidate for low-precision FPGA implementations of the
+arctangent function~\cite{muller2020}.
+
+General guidance from the literature is therefore not enough to select a method
+for a specific platform and number format. A reliable choice requires the
+candidate methods to be implemented on the same device and measured under
+identical conditions, so that their accuracy and hardware cost can be compared
+directly, including against the solutions already offered by the FPGA vendor.
+
+\section{Objectives}
+\label{sec:objectives}
+
+The main objective of this project is to design, implement and evaluate two
+pipelined hardware architectures that compute the sine of IEEE~754
+single-precision floating-point numbers on an FPGA, exposed through AXI4-Stream
+interfaces, and to compare their accuracy, resource usage and latency with the
+Xilinx IP-cores available in the Vivado design suite.
+
+The methods will be described in synthesizable VHDL, so that they can be
+implemented on a real device and validated in hardware on a Digilent Nexys A7
+development board, in addition to being verified in simulation.
