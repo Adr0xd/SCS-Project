@@ -9,13 +9,9 @@ The evaluation of non-linear elementary functions, in particular trigonometric
 functions such as the sine function, $\sin(x)$, is a frequent operation in
 digital systems. Applications such as machine learning and digital signal
 processing can often make do with fast, approximate evaluations of these
-functions~\cite{muller2020}. Muller~\cite{muller2020} also reviews hardware
-designs built for this purpose, such as a table-based sine approximation
-proposed for a spread-spectrum frequency synthesizer and an elementary-function
-accelerator for a neuromorphic chip. This project considers real-valued inputs
-represented in the 32-bit single-precision (binary32) floating-point format
-defined by the IEEE~754 standard~\cite{ieee754}.
-
+functions~\cite{muller2020}.
+This project considers real-valued inputs represented in the 32-bit single-precision
+(binary32) floating-point format defined by the IEEE~754 standard~\cite{ieee754}.
 
 \section{Motivation}
 \label{sec:motivation}
@@ -58,3 +54,33 @@ Xilinx IP-cores available in the Vivado design suite.
 The methods will be described in synthesizable VHDL, so that they can be
 implemented on a real device and validated in hardware on a Digilent Nexys A7
 development board, in addition to being verified in simulation.
+
+\paragraph{Secondary objectives:}
+\label{obj:secondary}
+\begin{enumerate}[label=\textbf{\arabic*.}, ref=\arabic*, leftmargin=*]
+  \item \label{obj:study}
+    Study the existing methods for approximating elementary functions and
+    select the two methods to be implemented: CORDIC and a table-based
+    method.
+  \item \label{obj:range}
+    Design a range reduction stage that maps any finite binary32 input to
+    the interval supported by the approximation methods, and handles the
+    special values ($\pm 0$, subnormals, $\pm\infty$, NaN).
+  \item \label{obj:cordic}
+    Implement a pipelined CORDIC architecture for the sine function.
+  \item \label{obj:lut}
+    Implement a pipelined table-based architecture for the sine function.
+  \item \label{obj:axi}
+    Wrap both architectures in AXI4-Stream interfaces that respect the
+    handshake rules.
+  \item \label{obj:verify}
+    Verify both designs in simulation against the software model, and
+    measure their absolute and relative error over the binary32 input
+    range.
+  \item \label{obj:compare}
+    Synthesize the designs together with the equivalent Vivado IP-cores
+    and compare accuracy, resource usage (LUTs, flip-flops, DSP slices,
+    block RAM), latency and maximum clock frequency.
+  \item \label{obj:board}
+    Demonstrate the designs running on the Nexys A7 board.
+\end{enumerate}

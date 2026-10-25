@@ -1,0 +1,83 @@
+% !TEX root = ../main.tex
+
+\chapter{Design}
+\label{ch:design}
+
+\section{Top-level overview}
+\label{sec:top-level}
+
+\begin{figure}[H]
+  \centering
+  \resizebox{\textwidth}{!}{%
+    \begin{tikzpicture}[
+        font=\small,
+        blk/.style={draw, rounded corners=2pt, minimum height=1.5cm,
+        text width=2.4cm, align=center, fill=gray!8},
+        core/.style={blk, text width=2.6cm, fill=blue!10},
+        small/.style={draw, rounded corners=2pt, minimum height=0.8cm,
+          text width=2.3cm, align=center, fill=gray!8,
+        font=\footnotesize},
+        lbl/.style={font=\footnotesize},
+        arr/.style={-{Latex[length=2mm]}, thick},
+        side/.style={-{Latex[length=2mm]}, densely dashed},
+        ctrl/.style={-{Latex[length=1.6mm]}, densely dotted, red!70!black},
+        node distance=0.8cm
+      ]
+      % ----- main datapath -----
+      \node[blk]                 (cls) {Input\\classification};
+      \node[blk,  right=of cls]  (rr)  {Range\\reduction};
+      \node[core, right=of rr]   (cor) {CORDIC core\\(40 stages)};
+      \node[blk,  right=of cor]  (rec) {Quadrant\\reconstruction};
+      \node[blk,  right=of rec]  (nrm) {Normalization\\and rounding};
+
+      % ----- output selector (trapezoid) -----
+      \coordinate (mx) at ($(nrm.east)+(0.9,0)$);
+      \draw[fill=gray!8] ($(mx)+(0,0.75)$) -- ($(mx)+(0.6,0.4)$)
+      -- ($(mx)+(0.6,-1.4)$) -- ($(mx)+(0,-1.75)$) -- cycle;
+      \coordinate (mxout) at ($(mx)+(0.6,-0.5)$);
+      \coordinate (mxtop) at ($(mx)+(0.3,0.58)$);
+
+      % ----- data arrows -----
+      \draw[arr] ($(cls.west)+(-1.0,0)$) -- node[above, lbl]{$x$} (cls.west);
+      \draw[arr] (cls) -- (rr);
+      \draw[arr] (rr)  -- node[above, lbl]{$r$} (cor);
+      \draw[arr] (cor) -- node[above, lbl]{$x_n, y_n$} (rec);
+      \draw[arr] (rec) -- (nrm);
+      \draw[arr] (nrm) -- (mx);
+      \draw[arr] (mxout) -- node[above, lbl]{$\sin x$} ++(1.1,0);
+
+      % ----- small-argument path -----
+      \node[small, above=0.55cm of cor] (sma) {Small argument\\$r \cdot \pi/2$};
+      \draw[arr] (rr.north) |- (sma.west);
+      \draw[arr] (sma.east) -| (rec.north);
+
+      % ----- side information -----
+      \coordinate (sideY) at ($(sma.north)+(0,0.45)$);
+      \draw[side] (cls.north) -- (cls.north |- sideY) -- (mxtop |- sideY)
+      node[pos=0.5, above, lbl]
+      {side information: sign, $k \bmod 4$, input class
+      (delayed with the data)}
+      -- (mxtop);
+
+      % ----- bypass path -----
+      \coordinate (byY)   at ($(cls.south)+(0,-0.45)$);
+      \coordinate (byin)  at (mx |- byY);
+      \coordinate (byout) at ($(cls.south)+(0.5,0)$);
+      \draw[arr] (byout) -- (byout |- byY) -- (byin)
+      node[pos=0.45, below, lbl]
+      {bypass path (delayed): $\pm 0$, $x$ itself, NaN};
+
+      % ----- stall control -----
+      \coordinate (stY) at ($(byY)+(0,-0.95)$);
+      \coordinate (rdy) at ($(mxout)+(1.1,-0.45)$);
+      \node[right, lbl, text=red!70!black] at (rdy) {ready};
+      \draw[densely dotted, red!70!black] (rdy) |- (cls.south |- stY)
+      node[pos=0.75, below, lbl, text=red!70!black]
+      {stall: all stages hold their values while the receiver is not ready};
+      \foreach \b in {cls, rr, cor, rec, nrm}
+      \draw[ctrl] (\b.south |- stY) -- (\b.south);
+    \end{tikzpicture}%
+  }
+  \caption{Top-level architecture of the CORDIC-based sine unit}
+  \label{fig:top-level}
+\end{figure}

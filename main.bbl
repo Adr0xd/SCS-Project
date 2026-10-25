@@ -1,18 +1,42 @@
-\begin{thebibliography}{1}
+\begin{thebibliography}{10}
 
 \bibitem{muller2020}
 J.-M. Muller, ``Elementary functions and approximate computing,'' {\em Proceedings of the IEEE}, vol.~108, no.~12, pp.~2136--2149, 2020.
 \newblock DOI: 10.1109/JPROC.2020.2991885. {HAL}: hal-02517784v2.
 
 \bibitem{ieee754}
-{Wikipedia}, ``{IEEE} 754.'' Wikipedia, The Free Encyclopedia, 2026.
+{Wikipedia contributors}, ``{IEEE} 754.'' Wikipedia, The Free Encyclopedia, 2026.
 \newblock Accessed: Oct. 2026. Available: \url{https://en.wikipedia.org/wiki/IEEE_754}.
 
 \bibitem{wiki_binary32}
-{Wikipedia}, ``Single-precision floating-point format.'' Wikipedia, The Free Encyclopedia, 2026.
+{Wikipedia contributors}, ``Single-precision floating-point format.'' Wikipedia, The Free Encyclopedia, 2026.
 \newblock Accessed: Oct. 2026. Available: \url{https://en.wikipedia.org/wiki/Single-precision_floating-point_format}.
+
+\bibitem{ly2026payne}
+T.~Ly, ``A performance enhancement of the {Payne-Hanek} range reduction algorithm.'' arXiv preprint arXiv:2609.35015v2 [cs.MS], 2026.
+\newblock Available: \url{https://arxiv.org/abs/2609.35015}.
 
 \bibitem{scs_lab04}
 {Structure of Computer Systems}, ``Laboratory 4: Dataflow architectures. {AXI4-Stream} standard.'' Laboratory guide, Technical University of Cluj-Napoca, 2026.
+
+\bibitem{volder1959}
+J.~E. Volder, ``The {CORDIC} trigonometric computing technique,'' {\em IRE Transactions on Electronic Computers}, vol.~EC-8, pp.~330--334, Sept. 1959.
+\newblock DOI: 10.1109/TEC.1959.5222693.
+
+\bibitem{becker2022dandelion}
+H.~Becker, M.~Tekriwal, E.~Darulova, A.~Volkova, and J.-B. Jeannin, ``Dandelion: Certified approximations of elementary functions.'' arXiv preprint arXiv:2202.05472v2 [cs.PL], 2022.
+\newblock DOI: 10.48550/arXiv.2202.05472.
+
+\bibitem{1708417}
+J.~Ylostalo, ``Function approximation using polynomials,'' {\em IEEE Signal Processing Magazine}, vol.~23, no.~5, pp.~99--102, 2006.
+
+\bibitem{wiki_fastinvsqrt}
+{Wikipedia contributors}, ``Fast inverse square root.'' Wikipedia, The Free Encyclopedia, 2026.
+\newblock Available: \url{https://en.wikipedia.org/wiki/Fast_inverse_square_root}. Accessed: Oct. 19, 2026.
+
+\bibitem{cordic}
+{Xilinx}, {\em {CORDIC} v6.0 {LogiCORE} {IP} Product Guide ({PG105})}.
+\newblock Xilinx, Inc., Aug. 2021.
+\newblock Available: \url{https://docs.amd.com/api/khub/documents/NHMqdvRJIfgF8hdbQmLFuA/content}.
 
 \end{thebibliography}

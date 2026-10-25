@@ -11,15 +11,21 @@
 \usepackage{siunitx}
 \usepackage[hidelinks]{hyperref}
 \usepackage{cleveref}
+\usepackage{float}
+\usepackage{enumitem}
+\usepackage{microtype}
+\usepackage{tikz}
 
+\usetikzlibrary{positioning, arrows.meta, calc}
 \hyphenpenalty=10000
 \exhyphenpenalty=10000
 \emergencystretch=3em
 
 \graphicspath{{figures/}}
 
-\title{Approximating the Sine Function on FPGA\\
-       \large IEEE~754 Single-Precision, Pipelined AXI4-Stream Implementation}
+\title{STRUCTURE OF COMPUTER SYSTEMS\\
+  Approximating the Sine Function on FPGA\\
+\large IEEE~754 Single-Precision, Pipelined AXI4-Stream Implementation}
 \author{Student: Diaconu Mihai\\Supervising professor: Lazea Dragos Bogdan\\\\Technical University of Cluj-Napoca\\Faculty of Automation and Computer Science}
 \date{\today}
 
@@ -29,6 +35,8 @@
 
 \input{chapters/01-introduction}
 \input{chapters/02-bibliographic-study}
+\input{chapters/03-analysis.tex}
+\input{chapters/04-design.tex}
 
 \bibliographystyle{ieeetr}
 \bibliography{references}

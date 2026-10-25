@@ -6,10 +6,9 @@
 \section{Theoretical background}
 \label{sec:theory}
 
-\subsection{IEEE-754 single-precision floating point}
-Before going into the methods for approximating the sine function, we need to
-understand the way real numbers are represented in memory using the IEEE~754
-single-precision floating point standard~\cite{ieee754}.
+\subsection{IEEE~754 single-precision floating point}
+\label{sec:ieee754}
+Before going into the methods for approximating the sine function, we need to understand the way real numbers are represented in memory using the IEEE~754 single-precision floating point standard~\cite{ieee754}.
 
 The standard defines arithmetic formats, rounding rules, operations and exception handling~\cite{ieee754}.
 For this project specifically we are interested in the specifics of \textbf{binary32}. As its name suggests,
@@ -23,14 +22,10 @@ the \textbf{binary32} uses 32 bits to represent a real number:
 
 The most significant bit gives the sign of the number - 0 for positive, 1 for negative values.
 Next 8 bits represent the exponent, biased with 127.
-The rest of 23 bits represent the mantissa (or fraction) which are the fractional part of
-the number with the implicit leading 1 bit for normalized values~\cite{muller2020,wiki_binary32}.
-The standard describes special exponents to represent special values like \(\pm 0\), NaN, \(\pm \infty\).
+The rest of 23 bits represent the mantissa (or fraction) which are the fractional part of the number with the implicit leading 1 bit for normalized values~\cite{muller2020,wiki_binary32}.
+The standard describes special exponents to represent special values like \(\pm 0\), NaN, \(\pm \infty\), as summarized in \cref{tab:special}~\cite{wiki_binary32}.
 
-The exponent values $E = 0$ and $E = 255$ are reserved for special values,
-as summarized in \cref{tab:special}~\cite{wiki_binary32}.
-
-\begin{table}[htbp]
+\begin{table}[H]
   \centering
   \caption{Special values in the binary32 format}
   \label{tab:special}
@@ -60,47 +55,36 @@ which can also be written as a sum over the fraction bits~\cite{muller2020,wiki_
   \label{eq:binary32}
 \end{equation}
 
-
 \subsection{Elementary function evaluation}
-Following~\cite{muller2020}, the term \emph{elementary functions} refers to
-the most widely used mathematical functions: $\sin$, $\cos$, $\tan$, $\sin^{-1}$,
-$\cos^{-1}$, $\tan^{-1}$, $\sinh$, $\cosh$, $\tanh$, $\sinh^{-1}$, $\cosh^{-1}$,
-$\tanh^{-1}$, as well as exponentials and logarithms in bases $2$, $e$ and $10$.
-These elementary functions can only be approximated, they cannot be computed exactly
-with a finite number of operations, as mentioned in \cref{sec:motivation}.
+Following~\cite{muller2020}, the term \emph{elementary functions} refers to the most widely used mathematical functions: $\sin$, $\cos$, $\tan$, $\sin^{-1}$, $\cos^{-1}$, $\tan^{-1}$, $\sinh$, $\cosh$, $\tanh$, $\sinh^{-1}$, $\cosh^{-1}$, $\tanh^{-1}$, as well as exponentials and logarithms in bases $2$, $e$ and $10$.
+These elementary functions can only be approximated, they cannot be computed exactly with a finite number of operations, as mentioned in \cref{sec:motivation}.
 
 \paragraph{Measuring accuracy.}
-Since an elementary function can only be approximated, the quality of an
-implementation is described7 by the error between the computed result
-$y^{*}$ and the exact result $y = f(x)$. Two measures are commonly used: the
-\emph{absolute error}, $|y^{*} - y|$, and the \emph{relative error},
-$|y^{*} - y| / |y|$. The ideal behaviour is \emph{correct
-rounding}, in which the implementation always returns the floating-point number
-nearest to the exact result~\cite{muller2020}.
+Since an elementary function can only be approximated, the quality of an implementation is described by the error between the computed result $y^{*}$ and the exact result $y = f(x)$. Two measures are commonly used: the \emph{absolute error}, $|y^{*} - y|$, and the \emph{relative error}, $|y^{*} - y| / |y|$.
+The ideal behaviour is \emph{correct rounding}, in which the implementation always returns the floating-point number nearest to the exact result~\cite{muller2020}.
 
+\subsection{Range reduction}
+\label{sec:range-reduction}
+
+Both CORDIC and the table-based method only work on a small input interval,
+while a binary32 input can be as large as about $3.4 \times 10^{38}$.
+Since sine is periodic, the input $x$ needs range reduction~\cite{ly2026payne}.
+
+For large inputs, $\pi/2$ must be known to many more bits than the input precision, otherwise the error in $r$ becomes larger than $r$ itself; the Payne-Hanek algorithm addresses this problem~\cite{ly2026payne}.
 
 \subsection{AXI-4 Streaming interface}
-In a dataflow architecture, processing is organized as a pipeline of independent
-modules, where each module receives data from the previous one and passes its
-results to the next. Since modules may need a different number of clock cycles to
-process a data item, they rarely run at the same rate: a fast sender feeding a
-slower receiver must stall until the receiver can accept new data, so the
-throughput of the whole pipeline is bottlenecked by its slowest stage. Moreover, if a
-sender kept transmitting while its receiver was busy, data would be lost. A flow
-control mechanism is therefore needed between the stages~\cite{scs_lab04}.
+This subsection references the Structure of Computer Systems laboratory guide~\cite{scs_lab04}.
+In a dataflow architecture, processing is organized as a pipeline of independent modules, where each module receives data from the previous one and passes its results to the next. Since modules may need a different number of clock cycles to process a data item, they rarely run at the same rate: a fast sender feeding a slower receiver must stall until the receiver can accept new data, so the throughput of the whole pipeline is bottlenecked by its slowest stage.
+Moreover, if a sender kept transmitting while its receiver was busy, data would be lost. A flow control mechanism is therefore needed between the stages.
 
-The AXI4-Stream protocol is a great interface to connect modules that need to exchange
-data. It connects a sender and a reciever together relying on a \textbf{ready/valid}
-handshake principle.
+The AXI4-Stream protocol is a great interface to connect modules that need to exchange data. It connects a sender and a reciever together relying on a \textbf{ready/valid} handshake principle.
 
-The interface consists of 5 main signals: a shared \textbf{CLOCK}, a global \textbf{RESET} (active LOW),
-the \textbf{DATA} lines, and 2 "control" bits: \textbf{VALID} (from the sender to the reciever)
-and \textbf{READY} (from the reciever to the sender)~\cite{scs_lab04}. Of course, the interface provides
-other optional signals, but the ones mentioned above are mandatory for reliable transfer of data between the modules.
+The interface consists of 5 main signals: a shared \texttt{CLOCK}, a global \texttt{RESET} (active LOW), the \texttt{TDATA} lines, and 2 ``control'' bits: \texttt{TVALID} (from the sender to the reciever)
+and \texttt{READY} (from the reciever to the sender). Of course, the interface provides other optional signals, but the ones mentioned above are mandatory for reliable transfer of data between the modules.
 
-Linking two modules together is simply done by connecting the output of the "sender" module to the inputs of the
-"reciever" module.
-\begin{figure}[htbp]
+Linking two modules together is simply done by connecting the output of the ``sender'' module to the inputs of the "reciever" module, but making sure \texttt{TREADY} goes from the reciever to the sender.
+
+\begin{figure}[H]
   \centering
   \includegraphics[width=\textwidth]{axi4-2modules.png}
   \caption{Two interconnected components using AXI4-Stream Interface~\cite{scs_lab04}}
@@ -108,31 +92,186 @@ Linking two modules together is simply done by connecting the output of the "sen
 \end{figure}
 
 \paragraph{The core HANDSHAKE rules.}
-As mentioned above, the \textbf{TVALID} and \textbf{TREADY} signals dictate when the information is transmitted
-across. This two-way mechanism allows both the sender and the reciever to control when the information is passed.
-The AXI4-Stream protocol imposes a very important rule, that is, for a data transfer to happen, both \textbf{TVALID}
-and \textbf{TREADY} signals must be asserted during the same clock cycle~\cite{scs_lab04}.
-Am ramas la handshake.
+As mentioned above, the \texttt{TVALID} and \texttt{TREADY} signals dictate when the information is transmitted across. This two-way mechanism allows both the sender and the reciever to control when the information is passed.
+The AXI4-Stream protocol imposes a very important rule, that is, for a data transfer to happen, both \texttt{TVALID} and \texttt{TREADY} signals must be asserted during the same rising edge.
 
+For the protocol to work correctly, the sender and the receiver must respect
+four rules:
+\begin{enumerate}[label=\textbf{Rule \arabic*.}, ref=\arabic*, leftmargin=*]
+  \item \label{rule:valid-hold}
+    Once \texttt{TVALID} is asserted, it must remain asserted until the
+    handshake occurs. This prevents the sender from ``changing its mind''
+    and losing the data.
+  \item \label{rule:no-wait}
+    The sender is not allowed to wait for \texttt{TREADY} before asserting
+    \texttt{TVALID}. It must announce that it has new data even if the
+    receiver is not yet ready to accept it.
+  \item \label{rule:ready-wait}
+    The receiver is allowed to wait for \texttt{TVALID} before asserting
+    \texttt{TREADY}, so it only signals readiness once valid data is
+    available.
+  \item \label{rule:ready-drop}
+    If the receiver asserts \texttt{TREADY} before \texttt{TVALID} has been
+    asserted, it is allowed to deassert \texttt{TREADY} again and wait for
+    the sender.
+\end{enumerate}
+
+The following picture depicts the timing diagram for a simple data transfer:
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.9\textwidth]{axi4-handshake}
+  \caption{AXI4-Stream handshake: D0 is held until \texttt{TREADY} is asserted,
+  then D0 and D1 are transferred on consecutive clock edges}
+  \label{fig:axi4-handshake}
+\end{figure}
 
 \section{Existing approaches for approximations}
 \label{sec:existing}
 
 \subsection{Table-based methods}
+Table-based methods go from pure tabulation of the results for as many inputs as possible when the needed precision is small, to more complex solutions that include lookup tables and some arithmetic operations (eg. range reduction for periodic functions)~\cite{muller2020}.
+
+When at most around 8 to 12 bits of accuracy are needed, the function can simply be tabulated, using the most significant bits of the input as the table address~\cite{muller2020}. Following the notation of~\cite{muller2020}, let $f$ be the function to be approximated and let $x = 0.x_{1}x_{2}\dots x_{n}$ be the input operand, represented in binary fixed-point arithmetic, where for simplicity $0 \le x < 1$.
+The table is addressed by the first $p$ bits of $x$, so it holds $2^{p}$ entries.
+To simplify the notation, let $a = 0.x_{1}x_{2}\dots x_{p}$ denote the value of the first $p$ bits of the input. Every input whose first $p$ bits are equal to those of $a$ lies in the interval
+\begin{equation}
+  I_{a} = \left[\, a,\; a + 2^{-p} \right),
+  \label{eq:tab-interval}
+\end{equation}
+and all of these inputs read the same table entry $T_{a}$, so they all produce the same result.
+The question is therefore which value to store in each entry.
+The obvious choice is the value of the function at the left end of the interval,
+\begin{equation}
+  T_{a} = f(a).
+  \label{eq:tab-naive}
+\end{equation}
+However, this is generally not optimal: since $f$ is usually monotonic over such a small interval, $f(x)$ is either always above or always below $f(a)$ inside $I_{a}$, so the error is entirely one-sided~\cite{muller2020}.
+The absolute error is minimized instead by storing the midpoint between the smallest and the largest value of $f$ on the interval~\cite{muller2020}:
+\begin{equation}
+  T_{a} = \frac{1}{2}\left( \min_{x \in I_{a}} f(x) + \max_{x \in I_{a}} f(x) \right).
+  \label{eq:tab-optimal}
+\end{equation}
+
+Some advantages of table-based methods are that they are faster than shift-and-add methods and also more accurate than bit manipulation techniques~\cite{muller2020}.
+They're very versatile, since any continous function can be tabulated. This approach is used both in hardware and software.
+The disadvantages are that they don't scale well. Table size grows exponentially with the number of input bits, so every extra bit of accuracy doubles the table.
+That's why simple tabulation only makes sense up to around 8-12 bits~\cite{muller2020}.
 
 \subsection{Shift-and-add algorithms (CORDIC)}
-pe foaie deocamdata
+\label{sec:cordic}
+As mentioned in~\cite{muller2020}, \emph{shift-and-add} algorithms are among the
+oldest methods for evaluating elementary functions, going back to Henry Briggs
+(1561--1631), who used them to compute logarithms.
+
+CORDIC (COordinate Rotation DIgital Computer) is a shift-and-add algorithm,
+introduced by Volder~\cite{volder1959}, that evaluates trigonometric functions
+using only additions, subtractions, bit shifts and a small table of precomputed
+constants, without requiring a hardware multiplier~\cite{muller2020}. More
+generally, shift-and-add algorithms can also compute exponentials, logarithms
+and square roots~\cite{muller2020}.
+
+The algorithm computes a rotation by an angle $\theta$ as a sequence of smaller
+rotations by fixed angles $\arctan 2^{-i}$, each performed in a direction
+$d_{i} = \pm 1$, which leads to the iteration~\cite{muller2020}
+\begin{equation}
+  \left\lbrace
+  \begin{aligned}
+    x_{i+1} &= x_{i} - d_{i}\, y_{i}\, 2^{-i} \\
+    y_{i+1} &= y_{i} + d_{i}\, x_{i}\, 2^{-i} \\
+    z_{i+1} &= z_{i} - d_{i} \arctan 2^{-i}.
+  \end{aligned}
+  \right.
+  \label{eq:cordic}
+\end{equation}
+Since the multiplications are only by $\pm 1$ and by powers of two, each
+iteration needs only additions, subtractions and shifts. The derivation of
+this iteration and its use for computing the sine function are detailed in
+\cref{sec:cordic-analysis}.
+
+The main advantage of CORDIC is that it requires no hardware multipliers, only adders, shifters and a small table of constants~\cite{muller2020}, which makes it well suited for devices with few DSP slices. In rotation mode it also returns $\sin\theta$ and $\cos\theta$ at the same time, which simplifies the reconstruction of the result after range reduction (\cref{tab:quadrant}). Moreover, since all iterations have the same structure, the algorithm maps naturally onto a pipeline, with one iteration per stage.
+
+On the other hand, CORDIC converges linearly: each iteration adds roughly one bit of accuracy~\cite{muller2020}, so reaching full binary32 accuracy requires a large number of iterations, which increases both latency and area.
+To keep the accumulated rounding errors small, the internal datapaths must also be wider than the 24-bit significand of the result. Finally, the result is scaled by the gain $K$, which must be compensated either by a final multiplication or by starting from $x_{0} = 1/K$.
+
+% cut cut cut
 
 \subsection{Polynomial approximation}
+Polynomial approximation replaces an elementary function, such as $\sin x$, $e^{x}$ or $\ln x$, with a polynomial that can be evaluated using only additions and multiplications, which makes it a common choice in mathematical libraries~\cite{becker2022dandelion}.
+\paragraph{Weierstrass approximation theorem.}
+The Weierstrass approximation theorem states that any function $f$ continuous on a closed and bounded interval $[a, b]$ can be uniformly approximated by a polynomial to any desired accuracy~\cite{1708417}.
+The most direct way to build such a polynomial is interpolation: $f$ is evaluated at $n+1$ distinct points $x_{0}, x_{1}, \dots, x_{n}$ in $[a, b]$, and the polynomial $p$ of degree at most $n$ is chosen such that $p(x_{i}) = f(x_{i})$ for every $i$.
+This polynomial is given by the Lagrange interpolation formula~\cite{1708417}
+\begin{equation}
+  p(x) = \sum_{i=0}^{n} f(x_{i})\, L_{i}(x),
+  \qquad
+  L_{i}(x) = \prod_{\substack{j=0 \\ j \neq i}}^{n} \frac{x - x_{j}}{x_{i} - x_{j}}.
+  \label{eq:lagrange}
+\end{equation}
+
+\paragraph{Taylor series.}
+A Taylor series approximates $f$ around a point $x_{0}$ by a polynomial whose derivatives at $x_{0}$ match those of $f$:
+\begin{equation}
+  p(x) = \sum_{k=0}^{n} \frac{f^{(k)}(x_{0})}{k!} (x - x_{0})^{k}.
+  \label{eq:taylor}
+\end{equation}
+For $x_{0} = 0$ it is also called a Maclaurin series.
+For example, $\sin x \approx x - x^{3}/3! + x^{5}/5!$.
+The approximation is very accurate close to $x_{0}$, but its error grows quickly as $x$ moves away from the expansion point~\cite{1708417}.
+
+\paragraph{The Remez algorithm.}
+To keep the error small over the whole interval, and not only near one point, the \emph{minimax} polynomial is used instead: the polynomial of a given degree that minimizes the maximum absolute error over the interval. It is computed iteratively with the Remez algorithm~\cite{muller2020}.
+
+The advantages of polynomial approximation are that there are few coefficients that need to be stored and accuracy increases with the degree of the polynomial. Also, Horner's scheme evaluates an $n$-degree polynomial with $n$ multiplications and $n$ additions.
+
+On the other hand, these methods work only on a small interval, so they still require range reduction \cref{sec:range-reduction} and on an FPGA every multiplication costs DSP slices and adds latency.
 
 \subsection{Bit-manipulation techniques}
+Bit manipulation for elementary functions (such as $\log_{2}(x)$, $e^{x}$, $\sqrt{x}$, and $x^{y}$) relies on a powerful property of computer arithmetic: IEEE 754 floating-point representations store numbers logarithmically.
 
-\subsection{Vendor IP cores}
+By abusing pointers or using bit-casts to treat a floating-point bit layout as a standard integer, you can compute incredibly fast, low-precision approximations of these complex mathematical functions using only basic integer shifts, additions, and subtractions~\cite{muller2020}.
 
-\section{Work plan}
-\label{sec:workplan}
+As mentioned in \cref{sec:ieee754}, the actual value of a \textbf{binary32} number is calculated as:
 
-\begin{table}[htbp]
+\begin{equation}
+  \text{V} = (-1)^{\text{sign}} \times \left( 1 + M \right) \times 2^{(E-127)}
+  \label{eq:binary32v2}
+\end{equation}
+If you bit-cast this exact 32-bit pattern directly, bit by bit, into a 32-bit integer, the resulting integer value is approximately a linear mapping of the base-2 logarithm of that number.
+
+\begin{equation}
+  I_{x} \approx 2^{23} \left( \log_{2} x + 127 - \sigma \right)
+  \label{eq:binary32log}
+\end{equation}
+where $I_{x}$ is the binary32 encoding of $x > 0$ interpreted as a 32-bit unsigned integer, and $\sigma \approx 0.0450$ is a small correction constant~\cite{wiki_fastinvsqrt}.
+
+Since $I_{x}$ is itself an approximation of $\log_{2} x$, up to a scale factor and an offset, these functions can be approximated without iterations or polynomial evaluation.
+
+The best-known application of this idea is the \emph{fast inverse square root} routine from the source code of the video game \emph{Quake~III Arena}~\cite{wiki_fastinvsqrt}. If $y = x^{-1/2}$, then $\log_{2} y = -\frac{1}{2}\log_{2} x$. Applying \cref{eq:binary32log} to both $x$ and $y$ gives
+\begin{equation}
+  I_{y} \approx \frac{3}{2} \cdot 2^{23} \left( 127 - \sigma \right)
+  - \frac{1}{2} I_{x},
+  \label{eq:fast-invsqrt}
+\end{equation}
+so an approximation of $1/\sqrt{x}$ is obtained with only an integer shift and a subtraction. For $\sigma \approx 0.045$, the constant term is equal to \texttt{0x5F3759DF}, the ``magic constant'' found in the original code~\cite{muller2020,wiki_fastinvsqrt}.
+
+For the sine function, no comparable approximation from the bit pattern exists, since $\sin x$ is periodic and is not related to the logarithm that the binary32 encoding approximates.
+Bit-level operations are nevertheless useful around the main approximation method: the identity $\sin(-x) = -\sin x$ is implemented by copying the sign bit, inputs with a small exponent can be returned unchanged since $\sin x \approx x$, and the special values of \cref{tab:special} can be detected from the exponent and fraction fields alone.
+These techniques are therefore used in this project as part of the input and output stages, rather than as a standalone method.
+
+\subsection{Vivado IP cores}
+\label{sec:vivado-ip}
+An intellectual property (IP) core is a reusable, pre-designed block of logic that can be integrated into an FPGA or ASIC design~\cite{scs_lab04}. FPGA vendors provide libraries of such cores so that common functions do not have to be designed from scratch. In the Vivado design suite, AMD collects its IP cores in a single \emph{IP catalog}, which covers areas such as embedded processing, communication and interfaces~\cite{scs_lab04}.
+
+For the CORDIC algorithm presented in \cref{sec:cordic}, Xilinx provides the LogiCORE IP CORDIC core in the Vivado IP catalog~\cite{cordic}.
+The core operates on fixed-point two's complement data, with configurable input width, and exposes the AXI4-Stream interface.
+For sine and cosine, the input $\theta$ is given in radians in the range $[-\pi, \pi]$, and the core returns $\cos\theta$ and $\sin\theta$.
+Since it does not accept floating-point input, it also requires a range reduction stage and a conversion between floating point and fixed-point.
+
+\subsection{Work Plan}
+\label{ch:workplan}
+
+\begin{table}[H]
   \centering
   \caption{Targets for each project meeting}
   \label{tab:workplan}
@@ -140,13 +279,13 @@ pe foaie deocamdata
     \toprule
     Meeting & Target \\
     \midrule
-    PM 1 & Pick the project and begin studying\\
-    PM 2 & Introduction and bibliographic study\\ 
-    PM 3 & Initial design for the two approximation methods\\
-    PM 4 & Updated design of the two approximation methods\\
-    PM 5 & Start implementing methods in hardware\\
-    PM 6 & Continue implementing in hardware and start testing\\
-    PM 7 & Finish testing and present final project\\
+    PM 1 & Pick the project and begin studying \\
+    PM 2 & Introduction and bibliographic study \\
+    PM 3 & Initial design for the two approximation methods \\
+    PM 4 & Updated design of the two approximation methods \\
+    PM 5 & Start implementing methods in hardware \\
+    PM 6 & Continue implementing in hardware and start testing \\
+    PM 7 & Finish testing and present final project \\
     \bottomrule
   \end{tabularx}
 \end{table}

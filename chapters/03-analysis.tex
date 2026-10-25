@@ -1,0 +1,553 @@
+% !TEX root = ../main.tex
+
+\chapter{Analysis}
+\label{ch:analysis}
+
+\section{Classification of binary32 inputs}
+\label{sec:input-classification}
+Not every input needs to go through the full pipeline: some have an obvious
+result, and some do not represent numbers at all. These inputs can be
+identified by examining only the exponent and fraction fields
+(\cref{tab:special}), before any computation takes place:
+
+\begin{enumerate}[label=\textbf{\arabic*.}, ref=\arabic*, leftmargin=*]
+  \item \textbf{Zero} (exponent and fraction both 0) is passed directly to
+    the output, with its sign preserved, since the standard defines both
+    $+0$ and $-0$~\cite{ieee754}.
+  \item \textbf{Subnormal numbers} (exponent 0, fraction $\neq 0$) are
+    smaller than $2^{-126}$, so $\sin x = x$ within the binary32
+    precision, and they are passed directly to the output.
+  \item \textbf{Tiny normal numbers}, with an exponent field smaller than 115
+    ($|x| < 2^{-12}$), are passed directly to the output for the same
+    reason (see \cref{sec:cordic-analysis}).
+  \item \textbf{Small normal numbers}, with $|x| \le \pi/4$, already lie in
+    the reduced interval, so $k = 0$ and no quadrant correction is
+    needed.
+  \item \textbf{All other normal numbers} go through range reduction and the
+    approximation method.
+  \item \textbf{Infinity} (exponent 255, fraction 0) produces NaN, since
+    $\sin(\pm\infty)$ is an invalid operation~\cite{ieee754}.
+  \item \textbf{NaN} inputs (exponent 255, fraction $\neq 0$) produce NaN.
+\end{enumerate}
+
+The inputs are therefore divided into two paths: a \emph{bypass path}, for
+which the result is known immediately (cases 1--3, 6 and 7), and a
+\emph{compute path}, which uses range reduction and the approximation method
+(cases 4 and 5).
+
+\section{Range reduction for binary32 inputs}
+\label{sec:range-reduction}
+
+Since sine is periodic, every input $x$ is first decomposed into an integer
+$k$ and a small remainder $r$~\cite{ly2026payne}:
+\begin{equation}
+  x = k\,\frac{\pi}{2} + r, \qquad |r| \le \frac{\pi}{4}, \quad k \in \mathbb{Z},
+  \label{eq:sin-reduction}
+\end{equation}
+where:
+\begin{itemize}
+  \item $k$ is the number of quarter periods contained in $x$; the value
+    $k \bmod 4$ determines the quadrant, and therefore which function and
+    sign give the final result (\cref{tab:quadrant});
+  \item $r$ is the \emph{reduced argument}, which is passed to the
+    approximation method (CORDIC or the lookup table).
+\end{itemize}
+
+\begin{table}[H]
+  \centering
+  \caption{Reconstruction of $\sin x$ from the reduced argument $r$}
+  \label{tab:quadrant}
+  \begin{tabular}{cc}
+    \toprule
+    $k \bmod 4$ & $\sin x$ \\
+    \midrule
+    0 & $\phantom{-}\sin r$ \\
+    1 & $\phantom{-}\cos r$ \\
+    2 & $-\sin r$ \\
+    3 & $-\cos r$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\paragraph{Use of symmetry.}
+Since sine is an odd function, $\sin(-x) = -\sin x$, the reduction is
+performed on $|x|$, and the sign bit of the input is applied to the result at
+the very end.
+
+\paragraph{Multiplication by $2/\pi$.}
+A normalized binary32 input can be written as $x = M \cdot 2^{E}$, where $M$
+is the 24-bit integer formed by the implicit leading bit and the fraction
+field, and $E = e - 150$ is derived from the stored exponent $e$, where
+$150 = 127 + 23$ accounts for the bias and for the 23 fraction bits that are
+shifted into the integer $M$.
+Computing $x \cdot \frac{2}{\pi}$ therefore reduces to multiplying the integer $M$ by
+the bits of $2/\pi$ and shifting the product by $E$ positions. Only a window
+of the bits of $2/\pi$ influences the result~\cite{ly2026payne}: the bits
+that end up far above the binary point only add multiples of 4 to $k$, and
+since only $k \bmod 4$ is needed, they can be ignored.
+
+The bits that end up far below the binary point are smaller than the required precision, so they
+can be ignored as well. The constant $2/\pi$ is therefore stored once, with
+enough bits for the largest possible exponent, and the exponent $E$ selects
+the window of bits that is used for each input.
+
+\paragraph{Cancellation near multiples of $\pi/2$.}
+When $x$ is very close to a multiple of $\pi/2$, the reduced argument $r$
+becomes very small. A good example is $x = 355$: since
+$355/113 \approx \pi$, the input is almost exactly $226 \cdot \frac{\pi}{2}$,
+which gives $k = 226$ and $r \approx 0.0000192$ quarter-turns. In binary,
+this value of $r$ starts with about 15 leading zeros, which, as in the case
+of small CORDIC results, carry no information. The window of $2/\pi$ must
+therefore be wide enough that $r$ still has 24 correct significant bits after
+these zeros, and this must hold for the worst-case binary32 input, the one
+closest to a multiple of $\pi/2$.
+
+\paragraph{Output of range reduction.}
+For each input $x$, this stage produces three values: the sign of the input,
+which is applied to the final result; the two bits of $k \bmod 4$, which
+select between $\pm\sin r$ and $\pm\cos r$ (\cref{tab:quadrant}); and the
+reduced argument $r$, expressed in quarter-turns with $|r| \le 0.5$, which is
+passed to the approximation method.
+
+\section{CORDIC rotation for sine evaluation}
+\label{sec:cordic-analysis}
+
+\paragraph{Mathematical intuition.}
+To obtain the sine of an angle $\theta$, we can imagine rotating the unit vector
+$(1, 0)$ by $\theta$: the $y$-coordinate of the rotated vector is then equal to
+$\sin\theta$, and its $x$-coordinate to $\cos\theta$
+(\cref{fig:cordic-rotation}).
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[scale=0.67]{cordic-rotation}
+  \caption{Rotating the unit vector $(1, 0)$ by an angle $\theta$ gives the point
+  $(\cos\theta, \sin\theta)$}
+  \label{fig:cordic-rotation}
+\end{figure}
+
+More generally, the coordinates of a vector $(x, y)$ rotated by $\theta$ are given by the rotation matrix:
+\begin{equation}
+  \begin{bmatrix} x' \\ y'
+  \end{bmatrix}
+  =
+  \begin{bmatrix}
+    \cos\theta & -\sin\theta \\
+    \sin\theta & \cos\theta
+  \end{bmatrix}
+  \begin{bmatrix} x \\ y
+  \end{bmatrix}
+  \label{eq:rotation}
+\end{equation}
+Factoring out $\cos\theta$, we obtain:
+\begin{equation}
+  \begin{bmatrix} x' \\ y'
+  \end{bmatrix}
+  = \cos\theta
+  \begin{bmatrix}
+    1 & -\tan\theta \\
+    \tan\theta & 1
+  \end{bmatrix}
+  \begin{bmatrix} x \\ y
+  \end{bmatrix}
+  \label{eq:rotation-tan}
+\end{equation}
+
+The idea of CORDIC is to replace the rotation by $\theta$ with a sequence of smaller rotations by fixed angles $\theta_{i}$, each performed in a direction
+$d_{i} = \pm 1$, such that
+\begin{equation}
+  \theta \approx \sum_{i=0}^{n-1} d_{i}\,\theta_{i}.
+  \label{eq:angle-sum}
+\end{equation}
+The angles are chosen such that $\tan\theta_{i} = 2^{-i}$, that is $\theta_{i} = \arctan 2^{-i}$, so that multiplying by $\tan\theta_{i}$ reduces to a right shift by $i$ positions. Since the same angles are used for every input, the values $\arctan 2^{-i}$ can be precomputed and stored in a table
+(\cref{tab:precompval}).
+
+\begin{table}[H]
+  \centering
+  \caption{Rotation angles $\theta_{i} = \arctan 2^{-i}$ used by CORDIC}
+  \label{tab:precompval}
+  \begin{tabular}{rcccc}
+    \toprule
+    $i$ & $\tan\theta_{i}$ & $\theta_{i}$ (deg) & $\theta_{i}$ (rad)
+    & $\theta_{i}$ (quarter-turns) \\
+    \midrule
+    0  & $1$       & 45.00000000 & 0.7853981634 & 0.5000000000 \\
+    1  & $2^{-1}$  & 26.56505118 & 0.4636476090 & 0.2951672353 \\
+    2  & $2^{-2}$  & 14.03624347 & 0.2449786631 & 0.1559582608 \\
+    3  & $2^{-3}$  & 7.12501635  & 0.1243549945 & 0.0791668483 \\
+    $\dots$ & $\dots$ & $\dots$ & $\dots$ & $\dots$ \\
+    14 & $2^{-14}$ & 0.00349706  & 0.0000610352 & 0.0000388562 \\
+    15 & $2^{-15}$ & 0.00174853  & 0.0000305176 & 0.0000194281 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Applying \cref{eq:rotation-tan} for a single step $i$, with
+$\cos(d_{i}\theta_{i}) = \cos\theta_{i}$, gives:
+\begin{equation}
+  \begin{bmatrix} x_{i+1} \\ y_{i+1}
+  \end{bmatrix}
+  = \cos\theta_{i}
+  \begin{bmatrix}
+    1 & -d_{i}\tan\theta_{i} \\
+    d_{i}\tan\theta_{i} & 1
+  \end{bmatrix}
+  \begin{bmatrix} x_{i} \\ y_{i}
+  \end{bmatrix}
+  \label{eq:rotation-iter}
+\end{equation}
+After $n$ iterations, we have:
+\begin{equation}
+  \begin{bmatrix} x_{n} \\ y_{n}
+  \end{bmatrix}
+  = \left( \prod_{i=0}^{n-1} \cos\theta_{i} \right)
+  \begin{bmatrix} 1 & -d_{n-1}\tan\theta_{n-1} \\ d_{n-1}\tan\theta_{n-1} & 1
+  \end{bmatrix}
+  \cdots
+  \begin{bmatrix} 1 & -d_{0}\tan\theta_{0} \\ d_{0}\tan\theta_{0} & 1
+  \end{bmatrix}
+  \begin{bmatrix} x_{0} \\ y_{0}
+  \end{bmatrix}
+  \label{eq:rotation-n}
+\end{equation}
+Since $\tan\theta_{i} = 2^{-i}$, the scale factor becomes
+\begin{equation}
+  \prod_{i=0}^{n-1} \cos\theta_{i}
+  = \prod_{i=0}^{n-1} \frac{1}{\sqrt{1 + 2^{-2i}}}
+  \;\xrightarrow{\,n \to \infty\,}\; \frac{1}{K} \approx 0.6073,
+  \label{eq:cordic-gain}
+\end{equation}
+where $K \approx 1.6468$ is the CORDIC gain~\cite{muller2020}. This factor does not depend on the directions $d_{i}$, so it is the same for every input and can be compensated once, by starting from $x_{0} = 1/K$ instead of $1$.
+
+Dropping the scale factor, and introducing a variable $z$ that keeps track of
+the angle still left to rotate, gives the CORDIC iteration presented in
+\cref{eq:cordic}~\cite{muller2020}, where the values $\arctan 2^{-i}$ are read
+from \cref{tab:precompval}.
+
+To compute $\sin \theta$, we use the \emph{rotation} mode of CORDIC, in which $d_{i} = \operatorname{sign}(z_{i})$, so that $z$ is driven towards $0$. Starting from $x_{0} = 1/K$, $y_{0} = 0$ and $z_{0} = \theta$, after $n$ iterations we obtain $y_{n} \approx \sin\theta$ and $x_{n} \approx \cos\theta$.
+
+\paragraph{Convergence range.}
+CORDIC reaches the desired angle by adding or subtracting fixed angles:
+\ang{45}, then \ang{26.6}, then \ang{14.0}, and so on. Even if all rotations
+are performed in the same direction, the largest angle that can be reached is
+\begin{equation}
+  \sum_{i=0}^{\infty} \arctan 2^{-i} \approx \SI{1.7433}{\radian}
+  \approx \ang{99.9},
+  \label{eq:cordic-convergence}
+\end{equation}
+so the iteration converges only for $|z_{0}| \le 1.7433$~rad~\cite{muller2020}.
+After range reduction, the reduced argument satisfies $|r| \le \pi/4 \approx
+0.785$~rad (\cref{eq:sin-reduction}), which lies well inside this interval.
+Therefore, CORDIC converges for every input of the design, and no additional
+pre-rotation step is needed.
+
+\paragraph{Angle representation.}
+Range reduction (\cref{eq:sin-reduction}) multiplies the input by $2/\pi$, so
+its result is naturally expressed in \emph{quarter-turns}, where one unit
+corresponds to $\ang{90} = \pi/2$~rad. The integer nearest to this product gives $k$, which selects the quadrant,
+while the difference between the product and $k$ gives the reduced argument
+$r$, which represents the position within the quadrant and satisfies
+$|r| \le 0.5$. Converting $r$ back to radians would require an additional
+multiplication by $\pi/2$. Instead, $r$ is kept in quarter-turns, and the
+CORDIC rotation angles are stored in the same unit, as
+$\theta_{i} / (\pi/2)$ (\cref{tab:precompval}). The iteration in
+\cref{eq:cordic} remains unchanged; only the stored constants differ.
+
+\paragraph{Sources of error.}
+The accuracy of the fixed-point CORDIC iteration is limited by three sources
+of error:
+\begin{enumerate}
+  \item \textbf{The residual angle.} After $n$ iterations, the angle that
+    remains to be rotated, $z_{n}$, is bounded by the last rotation angle,
+    $\theta_{n-1} \approx 2^{-(n-1)}$, so each iteration adds roughly one
+    correct bit to the result~\cite{muller2020}.
+  \item \textbf{Truncation in the shifts.} Each right shift by $i$ positions
+    discards the bits that fall off the end of the word. Over many stages
+    these losses accumulate, so the datapath needs extra guard bits beyond
+    the required output precision.
+  \item \textbf{Rounding of the table constants.} Each value
+    $\arctan 2^{-i}$ is stored with finite precision, which adds a small
+    error at every stage.
+\end{enumerate}
+
+\paragraph{Precision of small results.}
+\label{pa:precision}
+Inside the CORDIC iteration, values are represented in fixed point, so the
+position of the binary point never changes. A small result, such as
+$\sin r \approx 0.0002$, is therefore represented as
+\begin{equation*}
+  0.0002 = (0.\underbrace{000000000000}_{12\ \text{zeros}}
+  110100011011011100010111\ldots)_{2}.
+\end{equation*}
+The leading zeros carry no information other than the magnitude of the
+number. When the result is converted to the binary32 format, normalization
+shifts the significand to the left until the first non-zero bit reaches the
+integer position, and the shift is recorded in the exponent:
+\begin{equation*}
+  0.0002 \approx (1.10100011011011100010111)_{2} \times 2^{-13}.
+\end{equation*}
+The 12 leading zeros are discarded, and the 24 bits that follow them form the
+significand of the result. Since all of these bits must be correct, the
+fixed-point computation must be accurate down to bit position
+$12 + 24 = 36$, and not only to position 24. The same effect appears in
+decimal notation: obtaining three significant digits of $0.000123$ requires
+computing six decimal places, since the first three are zeros.
+
+\paragraph{Required number of iterations and word length.}
+\label{pa:small-inputs}
+For a small reduced argument, $|r| < 2^{-12}$, the approximation
+$\sin r \approx r$ is used directly, since its relative error, approximately
+$r^{2}/6$, is below the binary32 precision. This covers both small inputs and
+inputs close to a multiple of $\pi/2$ (\cref{sec:range-reduction}). The
+smallest argument that reaches the CORDIC iteration is therefore about
+$2^{-12}$, which corresponds to the case illustrated above: the result has
+about 12 leading zeros, so an absolute accuracy of approximately $2^{-36}$ is
+required. Since each iteration adds roughly one correct bit, this requires
+about 36 to 38 iterations; with a small safety margin, the design uses about
+40 iterations. In addition, the truncation errors of all stages accumulate,
+so a few guard bits must be added beyond the 36 bits required by the result,
+which leads to an internal word length of about 44 fractional bits.
+
+\section{Lookup table with linear interpolation}
+\label{sec:lut}
+
+The second approximation method evaluates $\sin r$ from a precomputed table.
+This section determines how the table must be built and used to reach
+binary32 accuracy.
+
+\paragraph{Limits of direct tabulation.}
+A plain table stores the values of the sine function at $N$ evenly spaced
+points over one quadrant, $r \in [0, 1]$ quarter-turns, and every input that
+lies between two consecutive points receives the value of the point below it.
+The number of correct bits of this approximation grows only logarithmically
+with $N$: doubling the size of the table adds just one correct bit, even when
+the stored values are chosen optimally (\cref{eq:tab-optimal})~\cite{muller2020}.
+A table with 4096 entries reaches only about 11 correct bits, and a 24-bit
+result would require around 30 million entries.
+
+\paragraph{Linear interpolation.}
+Instead of using only the lower neighbour, both neighbours of the input can be
+used, and the sine function can be approximated by the straight line between
+them. If the input lies between the table points $i$ and $i+1$, at a fraction
+$d$ of the distance between them ($0 \le d < 1$), then
+\begin{equation}
+  \sin r \approx T[i] + d \cdot \big( T[i+1] - T[i] \big),
+  \label{eq:lerp}
+\end{equation}
+where $T[i]$ is the stored value at point $i$. Each evaluation therefore
+requires two table reads, one multiplication and two additions.
+
+\paragraph{Required table size.}
+The error of linear interpolation is no longer proportional to the distance
+$h$ between table points, but to $h^{2}$, since the error of a first-order
+approximation grows with the square of the distance to the reference
+point~\cite{muller2020}. Each doubling of the table now
+adds two correct bits instead of one. \Cref{tab:lut-size} compares the two
+approaches, as obtained by evaluating both methods numerically over the whole
+quadrant. With interpolation, 4096 entries are sufficient for about 25.7
+correct bits, which exceeds the binary32 precision, while a plain table would
+need around 30 million entries. For the plain table, the absolute error is
+given, since its relative error near zero is unbounded. For linear interpolation, the errors in
+\cref{tab:lut-size} are relative, and they remain small even close to zero: since the table starts
+exactly at $\sin 0 = 0$, the line and the curve shrink together near the
+origin. Arguments smaller than $2^{-12}$ are handled directly, as described in
+\cref{sec:cordic-analysis}.
+
+\begin{table}[H]
+  \centering
+  \caption{Correct bits of the table-based approximation, with and without
+  linear interpolation}
+  \label{tab:lut-size}
+  \begin{tabular}{rcc}
+    \toprule
+    Table entries $N$ & Plain table & Linear interpolation \\
+    \midrule
+    256  & $\approx 7$  & $\approx 17$   \\
+    1024 & $\approx 9$  & $\approx 21$   \\
+    2048 & $\approx 10$ & $\approx 23$   \\
+    4096 & $\approx 11$ & $\approx 25.7$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\paragraph{One table for both sine and cosine.}
+As shown in \cref{tab:quadrant}, range reduction requires either $\sin r$ or
+$\cos r$, depending on the quadrant. The CORDIC iteration provides both values
+at the same time, whereas a table-based method would in principle need two
+separate tables. However, with angles expressed in quarter-turns,
+\begin{equation}
+  \cos\!\left(r \cdot \frac{\pi}{2}\right)
+  = \sin\!\left((1 - r) \cdot \frac{\pi}{2}\right),
+  \label{eq:sincosqt}
+\end{equation}
+so the cosine is simply the sine read from the other end of the quadrant. A
+single table of the sine function over one quadrant therefore covers both
+cases: it is read at $|r|$ when the sine is needed, and at $1 - |r|$ when the
+cosine is needed. Since the argument can reach the end of the quadrant, the
+table stores $N + 1 = 4097$ values, including the endpoint
+$\sin(\pi/2) = 1$, which is also required for interpolating the last interval.
+
+\paragraph{Table addressing.}
+With $4096 = 2^{12}$ entries, the argument of the table, expressed in
+quarter-turns and lying in the interval $[0, 1]$, is divided directly by its
+bits:
+\begin{equation*}
+  (0.\underbrace{101100111010}_{\text{index } i}\,
+  \underbrace{01101001\ldots}_{\text{fraction } d})_{2}.
+\end{equation*}
+The 12 most significant fractional bits select the table entry $i$, while
+the remaining bits form the fraction $d$, which gives the position of the
+argument between the entries $i$ and $i+1$ (\cref{eq:lerp}). Addressing the
+table therefore requires no arithmetic, only the selection of two bit fields.
+This is possible because the argument is expressed in quarter-turns: one
+quadrant corresponds exactly to the interval $[0, 1]$, so its binary
+fraction can be used as a table address directly.
+
+\section{Normalization and rounding to binary32}
+\label{sec:normalization}
+
+The outputs of both CORDIC and the Lookup table are fixed point numbers
+between 0 and 1, with about 44 fractional bits. We also get as outputs
+the sign bit and $k$ mod $4$ from the range reduction stage.
+This stage will turn this number into a binary32 format in four steps.
+
+\paragraph{Sign of the result.}
+Two values determine the sign of the result: the sign of the input and the
+quadrant given by $k \bmod 4$. For $k \bmod 4 = 2$ or $3$, i.e.\ in the third
+and fourth quadrants, the result is negative (\cref{tab:quadrant}); this
+corresponds to the most significant bit of $k \bmod 4$ being 1. The sign of
+the result is therefore obtained as the exclusive OR of the input sign and
+this bit, since two negative factors cancel each other.
+
+\paragraph{Leading-zero count.}
+The fixed-point result produced by the approximation method lies in the
+interval $[0, 1]$, and small results are preceded by a number of leading
+zeros. The next step is to count these zeros, which determines the position
+of the first non-zero bit and therefore the magnitude of the result.
+
+\paragraph{Normalization and exponent.}
+The fixed-point value is then shifted to the left by $z$ positions, so that
+the first non-zero bit reaches the position in front of the binary point.
+This bit becomes the implicit leading bit of the binary32 format, and only
+the bits that follow it are kept as the fraction. Since the value has the
+form $1.f \times 2^{-(z+1)}$, the stored exponent, including the bias of 127,
+is
+\begin{equation}
+  e = 127 - (z + 1) = 126 - z.
+  \label{eq:norm-exponent}
+\end{equation}
+
+\paragraph{Rounding to 24 bits.}
+The significand of a binary32 number has only 24 bits: the implicit leading
+bit and the 23 fraction bits. The bits of the fixed-point result that follow
+these 24 bits must therefore be discarded, and the result is rounded according
+to the default rounding mode of the standard, \emph{round to nearest, ties to
+even}~\cite{ieee754}:
+\begin{itemize}
+  \item if the first discarded bit is 0, the result is rounded down, i.e.\ the
+    discarded bits are simply removed;
+  \item if the first discarded bit is 1 and at least one of the following bits
+    is 1, the result is rounded up, by adding one unit to the last kept
+    bit;
+  \item if the first discarded bit is 1 and all following bits are 0, the
+    value lies exactly halfway between two candidates, and the one whose
+    last bit is 0 is chosen, which avoids a systematic rounding bias.
+\end{itemize}
+Rounding up can cause an overflow of the significand: a value whose 24 bits
+are all 1, $(1.11\ldots1)_{2}$, becomes $(10.00\ldots0)_{2}$ after one unit
+is added to its last bit. In this case, the significand is shifted right by
+one position and the exponent $e$ (\cref{eq:norm-exponent}) is increased by
+one. This occurs, for instance, for results very close to 1.
+
+It is worth mentioning that the value being rounded is already an approximation,
+so the result is not guaranteed to be correctly rounded. It can rarely differ
+by one unit in the last place, when the true value lies very close to a rounding boundary.
+
+Bypassed inputs ($x$ itself, $\pm 0$, NaN) skip this stage,
+except the tiny-$r$ case, which goes through normalization.
+
+\section{Pipelined execution}
+\label{sec:pipeline}
+
+Both approximation methods are organized as a pipeline, which accepts a new
+input at every clock cycle. CORDIC is particularly well suited to this
+organization: since its iterations all have the same structure, each
+iteration can be assigned to its own pipeline stage.
+
+\paragraph{Iterative vs pipelined execution.}
+An iterative algorithm with $n$ iterations can be executed in two ways:
+\emph{iteratively}, by a single unit that gets reused for each iteration,
+or in a \emph{pipeline}, by $n$ (mostly) identical units,
+each performing one iteration and separated by pipeline registers.
+
+\begin{table}[H]
+  \centering
+  \caption{Iterative and pipelined execution of an algorithm with $n$
+  iterations}
+  \label{tab:iter-vs-pipe}
+  \begin{tabular}{lcc}
+    \toprule
+    & Iterative & Pipelined \\
+    \midrule
+    Iteration units            & 1                & $n$             \\
+    Latency                    & $n$ cycles       & $n$ cycles      \\
+    New input accepted         & every $n$ cycles & every cycle     \\
+    Inputs processed at once   & 1                & up to $n$       \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+The latency is the same in both cases, since every input still needs $n$ iterations,
+but the throughput of the pipeline is $n$ times higher, and a new result is produced
+at each clock cycle. However, for the pipeline the price grows proportionally to the
+number of pipeline stages.
+
+\paragraph{Structure of one pipeline stage.}
+In a pipelined form, stage $i$ always does iteration $i$ of \cref{eq:cordic}, so
+the shift amount is fixed (stage 5 always shifts by 5)
+and the angle constant is fixed (stage 5 always uses $\arctan 2^{-5}$). In the iterative form,
+the single unit must use a different constant each iteration, since it gets reused (would need
+a variable shifter) and a table of constants.
+Each stage consists only of three additions or subtractions, plus a sign check of $z_{i}$.
+The fixed shifts require no computation, only a selection of the bits.
+
+Each input carries extra information through the pipeline: the input sign, $k \bmod 4$,
+and the type of input~\cref{sec:input-classification}. This information advances one stage per clock cycle
+together with the computed data so they arrive at the output at the same this.
+Bypassed inputs also must wait for the same number of cycles, otherwise the results would come out of order.
+
+\paragraph{The slowest stage sets the pace.}
+All stages share the same clock, so the clock can only be as fast
+as the slowest stage. The largest single operation of the design is the multiplication of the 24-bit significand
+with the selected window of $2/\pi$ in range reduction (\cref{sec:range-reduction}).
+
+\paragraph{Analysing latency.}
+% The latency of the design depends on the selected method.
+The CORDIC method has around 40 approximation stages (one per iteration), with 3 additions per stage and no
+multiplication, meaning that the total latency is relatively high --- the first input reaches the output after
+around 50 clock cycles, which include the range reduction, input classification and normalization after leaving
+the approximation stages. The cost of the approximation part is $40 \times 3$ adders.
+
+The table-based method requires only a few approximation stages, which follow \cref{eq:lerp}: reading the
+entries $T[i]$ and $T[i+1]$, computing their difference, multiplying it by $d$ and adding the result to
+$T[i]$. meaning the input reaches the output after around 10--12 clock cycles including the beforehand
+input preparation and the after computing normalization. The cost of this table based method is one
+table of $4097$ values and one multiplier.
+
+The two chosen method represent opposite trade-offs: CORDIC avoids multiplication and large memories at the
+cost of a longer pipeline, while the table based method has a shorter pipeline, but at the cost of a larger
+memory footprint. Measuring the costs on the same device is one of the main objectives of this project
+(\cref{sec:objectives}).
+
+\section{Flow control with backpressure}
+\label{sec:backpressure}
+
+The pipeline produces one result per clock cycle, but the receiver may
+refuse a result at any time through the valid/ready handshake
+(\cref{rule:valid-hold}). Since up to one input per stage is in flight, the
+pipeline must react without losing data. Each stage carries a valid bit that
+marks whether it holds a real input. Two strategies are possible: stalling
+all stages while the receiver is not ready, which needs no extra storage but
+requires a control signal that reaches every stage in the same cycle; or
+letting the pipeline run and collecting results in an output buffer, whose
+size must match the pipeline depth.
