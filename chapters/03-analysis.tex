@@ -15,7 +15,7 @@ identified by examining only the exponent and fraction fields
     the output, with its sign preserved, since the standard defines both
     $+0$ and $-0$~\cite{ieee754}.
   \item \textbf{Subnormal numbers} (exponent 0, fraction $\neq 0$) are
-    smaller than $2^{-126}$, so $\sin x = x$ within the binary32
+    smaller than $2^{-12}$, so $\sin x = x$ within the binary32
     precision, and they are passed directly to the output.
   \item \textbf{Tiny normal numbers}, with an exponent field smaller than 115
     ($|x| < 2^{-12}$), are passed directly to the output for the same
@@ -23,8 +23,8 @@ identified by examining only the exponent and fraction fields
   \item \textbf{Small normal numbers}, with $|x| \le \pi/4$, already lie in
     the reduced interval, so $k = 0$ and no quadrant correction is
     needed.
-  \item \textbf{All other normal numbers} go through range reduction and the
-    approximation method.
+  \item \textbf{All other normal numbers} go through range reduction (\cref{sec:range-reduction})
+    and the approximation method.
   \item \textbf{Infinity} (exponent 255, fraction 0) produces NaN, since
     $\sin(\pm\infty)$ is an invalid operation~\cite{ieee754}.
   \item \textbf{NaN} inputs (exponent 255, fraction $\neq 0$) produce NaN.
@@ -85,7 +85,6 @@ the bits of $2/\pi$ and shifting the product by $E$ positions. Only a window
 of the bits of $2/\pi$ influences the result~\cite{ly2026payne}: the bits
 that end up far above the binary point only add multiples of 4 to $k$, and
 since only $k \bmod 4$ is needed, they can be ignored.
-
 The bits that end up far below the binary point are smaller than the required precision, so they
 can be ignored as well. The constant $2/\pi$ is therefore stored once, with
 enough bits for the largest possible exponent, and the exponent $E$ selects
@@ -406,9 +405,9 @@ fraction can be used as a table address directly.
 \section{Normalization and rounding to binary32}
 \label{sec:normalization}
 
-The outputs of both CORDIC and the Lookup table are fixed point numbers
-between 0 and 1, with about 44 fractional bits. We also get as outputs
-the sign bit and $k$ mod $4$ from the range reduction stage.
+The outputs of both CORDIC and the table-based method are fixed-point numbers
+between 0 and 1, with about 44 fractional bits. Range reduction also provides
+the sign of the input and $k \bmod 4$.
 This stage will turn this number into a binary32 format in four steps.
 
 \paragraph{Sign of the result.}
@@ -418,12 +417,18 @@ and fourth quadrants, the result is negative (\cref{tab:quadrant}); this
 corresponds to the most significant bit of $k \bmod 4$ being 1. The sign of
 the result is therefore obtained as the exclusive OR of the input sign and
 this bit, since two negative factors cancel each other.
+Since the approximation method operates on $|r|$, the sign of $r$ is also
+carried as side information; it changes the sign of the result only when the
+sine is selected ($k \bmod 4 = 0$ or $2$), since $\sin(-r) = -\sin r$ while
+$\cos(-r) = \cos r$.
 
 \paragraph{Leading-zero count.}
 The fixed-point result produced by the approximation method lies in the
 interval $[0, 1]$, and small results are preceded by a number of leading
 zeros. The next step is to count these zeros, which determines the position
 of the first non-zero bit and therefore the magnitude of the result.
+Let $z$ denote the number of leading zeros; the first non-zero bit is then
+at position $z + 1$.
 
 \paragraph{Normalization and exponent.}
 The fixed-point value is then shifted to the left by $z$ positions, so that
@@ -479,6 +484,7 @@ An iterative algorithm with $n$ iterations can be executed in two ways:
 \emph{iteratively}, by a single unit that gets reused for each iteration,
 or in a \emph{pipeline}, by $n$ (mostly) identical units,
 each performing one iteration and separated by pipeline registers.
+\Cref{tab:iter-vs-pipe} compares the two variants.
 
 \begin{table}[H]
   \centering
@@ -506,37 +512,44 @@ number of pipeline stages.
 In a pipelined form, stage $i$ always does iteration $i$ of \cref{eq:cordic}, so
 the shift amount is fixed (stage 5 always shifts by 5)
 and the angle constant is fixed (stage 5 always uses $\arctan 2^{-5}$). In the iterative form,
-the single unit must use a different constant each iteration, since it gets reused (would need
-a variable shifter) and a table of constants.
+by contrast, the single unit is reused for every iteration, so it must shift by a different
+amount and use a different constant in each cycle, which requires a variable shifter and a
+table of constants.
 Each stage consists only of three additions or subtractions, plus a sign check of $z_{i}$.
 The fixed shifts require no computation, only a selection of the bits.
 
+\paragraph{Side information.}
+\label{pa:side-info}
 Each input carries extra information through the pipeline: the input sign, $k \bmod 4$,
-and the type of input~\cref{sec:input-classification}. This information advances one stage per clock cycle
-together with the computed data so they arrive at the output at the same this.
-Bypassed inputs also must wait for the same number of cycles, otherwise the results would come out of order.
+and the type of input (\cref{sec:input-classification}). This information advances
+one stage per clock cycle
+together with the computed data so they arrive at the output at the same time.
+Bypassed inputs also must wait for the same number of cycles, otherwise the results
+would come out of order.
 
 \paragraph{The slowest stage sets the pace.}
 All stages share the same clock, so the clock can only be as fast
 as the slowest stage. The largest single operation of the design is the multiplication of the 24-bit significand
 with the selected window of $2/\pi$ in range reduction (\cref{sec:range-reduction}).
+If this operation cannot be completed within one clock cycle, it is divided
+over several pipeline stages, at the cost of a slightly higher latency.
 
 \paragraph{Analysing latency.}
-% The latency of the design depends on the selected method.
 The CORDIC method has around 40 approximation stages (one per iteration), with 3 additions per stage and no
-multiplication, meaning that the total latency is relatively high --- the first input reaches the output after
+multiplication, meaning that the total latency is relatively high --- every input reaches the output after
 around 50 clock cycles, which include the range reduction, input classification and normalization after leaving
 the approximation stages. The cost of the approximation part is $40 \times 3$ adders.
 
 The table-based method requires only a few approximation stages, which follow \cref{eq:lerp}: reading the
 entries $T[i]$ and $T[i+1]$, computing their difference, multiplying it by $d$ and adding the result to
-$T[i]$. meaning the input reaches the output after around 10--12 clock cycles including the beforehand
-input preparation and the after computing normalization. The cost of this table based method is one
-table of $4097$ values and one multiplier.
+$T[i]$. Including the same preparation and normalization stages, its latency
+is around 10--12 clock cycles, and its approximation part requires one table
+of 4097 values and one multiplier.
 
-The two chosen method represent opposite trade-offs: CORDIC avoids multiplication and large memories at the
-cost of a longer pipeline, while the table based method has a shorter pipeline, but at the cost of a larger
-memory footprint. Measuring the costs on the same device is one of the main objectives of this project
+The two chosen methods represent opposite trade-offs: CORDIC avoids
+multiplications and large memories at the cost of a longer pipeline, while
+the table-based method has a shorter pipeline, but requires a memory and a
+multiplier. Measuring the costs on the same device is one of the main objectives of this project
 (\cref{sec:objectives}).
 
 \section{Flow control with backpressure}

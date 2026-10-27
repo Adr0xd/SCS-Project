@@ -20,7 +20,7 @@ the \textbf{binary32} uses 32 bits to represent a real number:
   \label{fig:binary32}
 \end{figure}
 
-The most significant bit gives the sign of the number - 0 for positive, 1 for negative values.
+The most significant bit gives the sign of the number --- 0 for positive, 1 for negative values.
 Next 8 bits represent the exponent, biased with 127.
 The rest of 23 bits represent the mantissa (or fraction) which are the fractional part of the number with the implicit leading 1 bit for normalized values~\cite{muller2020,wiki_binary32}.
 The standard describes special exponents to represent special values like \(\pm 0\), NaN, \(\pm \infty\), as summarized in \cref{tab:special}~\cite{wiki_binary32}.
@@ -64,7 +64,7 @@ Since an elementary function can only be approximated, the quality of an impleme
 The ideal behaviour is \emph{correct rounding}, in which the implementation always returns the floating-point number nearest to the exact result~\cite{muller2020}.
 
 \subsection{Range reduction}
-\label{sec:range-reduction}
+\label{sec:range-reduction-intro}
 
 Both CORDIC and the table-based method only work on a small input interval,
 while a binary32 input can be as large as about $3.4 \times 10^{38}$.
@@ -72,17 +72,17 @@ Since sine is periodic, the input $x$ needs range reduction~\cite{ly2026payne}.
 
 For large inputs, $\pi/2$ must be known to many more bits than the input precision, otherwise the error in $r$ becomes larger than $r$ itself; the Payne-Hanek algorithm addresses this problem~\cite{ly2026payne}.
 
-\subsection{AXI-4 Streaming interface}
+\subsection{AXI4-Stream interface}
 This subsection references the Structure of Computer Systems laboratory guide~\cite{scs_lab04}.
 In a dataflow architecture, processing is organized as a pipeline of independent modules, where each module receives data from the previous one and passes its results to the next. Since modules may need a different number of clock cycles to process a data item, they rarely run at the same rate: a fast sender feeding a slower receiver must stall until the receiver can accept new data, so the throughput of the whole pipeline is bottlenecked by its slowest stage.
 Moreover, if a sender kept transmitting while its receiver was busy, data would be lost. A flow control mechanism is therefore needed between the stages.
 
-The AXI4-Stream protocol is a great interface to connect modules that need to exchange data. It connects a sender and a reciever together relying on a \textbf{ready/valid} handshake principle.
+The AXI4-Stream protocol is a great interface to connect modules that need to exchange data. It connects a sender and a receiver together relying on a \textbf{ready/valid} handshake principle.
 
-The interface consists of 5 main signals: a shared \texttt{CLOCK}, a global \texttt{RESET} (active LOW), the \texttt{TDATA} lines, and 2 ``control'' bits: \texttt{TVALID} (from the sender to the reciever)
-and \texttt{READY} (from the reciever to the sender). Of course, the interface provides other optional signals, but the ones mentioned above are mandatory for reliable transfer of data between the modules.
+The interface consists of 5 main signals: a shared \texttt{CLOCK}, a global \texttt{RESET} (active LOW), the \texttt{TDATA} lines, and 2 ``control'' bits: \texttt{TVALID} (from the sender to the receiver)
+and \texttt{TREADY} (from the receiver to the sender). Of course, the interface provides other optional signals, but the ones mentioned above are mandatory for reliable transfer of data between the modules.
 
-Linking two modules together is simply done by connecting the output of the ``sender'' module to the inputs of the "reciever" module, but making sure \texttt{TREADY} goes from the reciever to the sender.
+Linking two modules together is simply done by connecting the output of the ``sender'' module to the inputs of the ``receiver'' module, but making sure \texttt{TREADY} goes from the receiver to the sender.
 
 \begin{figure}[H]
   \centering
@@ -91,8 +91,8 @@ Linking two modules together is simply done by connecting the output of the ``se
   \label{fig:axi4-2modules}
 \end{figure}
 
-\paragraph{The core HANDSHAKE rules.}
-As mentioned above, the \texttt{TVALID} and \texttt{TREADY} signals dictate when the information is transmitted across. This two-way mechanism allows both the sender and the reciever to control when the information is passed.
+\paragraph{The core handshake rules.}
+As mentioned above, the \texttt{TVALID} and \texttt{TREADY} signals dictate when the information is transmitted across. This two-way mechanism allows both the sender and the receiver to control when the information is passed.
 The AXI4-Stream protocol imposes a very important rule, that is, for a data transfer to happen, both \texttt{TVALID} and \texttt{TREADY} signals must be asserted during the same rising edge.
 
 For the protocol to work correctly, the sender and the receiver must respect
@@ -130,7 +130,7 @@ The following picture depicts the timing diagram for a simple data transfer:
 \label{sec:existing}
 
 \subsection{Table-based methods}
-Table-based methods go from pure tabulation of the results for as many inputs as possible when the needed precision is small, to more complex solutions that include lookup tables and some arithmetic operations (eg. range reduction for periodic functions)~\cite{muller2020}.
+Table-based methods go from pure tabulation of the results for as many inputs as possible when the needed precision is small, to more complex solutions that include lookup tables and some arithmetic operations (e.g.\ range reduction for periodic functions)~\cite{muller2020}.
 
 When at most around 8 to 12 bits of accuracy are needed, the function can simply be tabulated, using the most significant bits of the input as the table address~\cite{muller2020}. Following the notation of~\cite{muller2020}, let $f$ be the function to be approximated and let $x = 0.x_{1}x_{2}\dots x_{n}$ be the input operand, represented in binary fixed-point arithmetic, where for simplicity $0 \le x < 1$.
 The table is addressed by the first $p$ bits of $x$, so it holds $2^{p}$ entries.
@@ -154,9 +154,9 @@ The absolute error is minimized instead by storing the midpoint between the smal
 \end{equation}
 
 Some advantages of table-based methods are that they are faster than shift-and-add methods and also more accurate than bit manipulation techniques~\cite{muller2020}.
-They're very versatile, since any continous function can be tabulated. This approach is used both in hardware and software.
-The disadvantages are that they don't scale well. Table size grows exponentially with the number of input bits, so every extra bit of accuracy doubles the table.
-That's why simple tabulation only makes sense up to around 8-12 bits~\cite{muller2020}.
+They are very versatile, since any continuous function can be tabulated. This approach is used both in hardware and software.
+The disadvantages are that they do not scale well. Table size grows exponentially with the number of input bits, so every extra bit of accuracy doubles the table.
+That is why simple tabulation only makes sense up to around 8--12 bits~\cite{muller2020}.
 
 \subsection{Shift-and-add algorithms (CORDIC)}
 \label{sec:cordic}
@@ -224,7 +224,7 @@ To keep the error small over the whole interval, and not only near one point, th
 
 The advantages of polynomial approximation are that there are few coefficients that need to be stored and accuracy increases with the degree of the polynomial. Also, Horner's scheme evaluates an $n$-degree polynomial with $n$ multiplications and $n$ additions.
 
-On the other hand, these methods work only on a small interval, so they still require range reduction \cref{sec:range-reduction} and on an FPGA every multiplication costs DSP slices and adds latency.
+On the other hand, these methods work only on a small interval, so they still require range reduction (\cref{sec:range-reduction}) and on an FPGA every multiplication costs DSP slices and adds latency.
 
 \subsection{Bit-manipulation techniques}
 Bit manipulation for elementary functions (such as $\log_{2}(x)$, $e^{x}$, $\sqrt{x}$, and $x^{y}$) relies on a powerful property of computer arithmetic: IEEE 754 floating-point representations store numbers logarithmically.
@@ -267,25 +267,3 @@ For the CORDIC algorithm presented in \cref{sec:cordic}, Xilinx provides the Log
 The core operates on fixed-point two's complement data, with configurable input width, and exposes the AXI4-Stream interface.
 For sine and cosine, the input $\theta$ is given in radians in the range $[-\pi, \pi]$, and the core returns $\cos\theta$ and $\sin\theta$.
 Since it does not accept floating-point input, it also requires a range reduction stage and a conversion between floating point and fixed-point.
-
-\subsection{Work Plan}
-\label{ch:workplan}
-
-\begin{table}[H]
-  \centering
-  \caption{Targets for each project meeting}
-  \label{tab:workplan}
-  \begin{tabularx}{\textwidth}{lX}
-    \toprule
-    Meeting & Target \\
-    \midrule
-    PM 1 & Pick the project and begin studying \\
-    PM 2 & Introduction and bibliographic study \\
-    PM 3 & Initial design for the two approximation methods \\
-    PM 4 & Updated design of the two approximation methods \\
-    PM 5 & Start implementing methods in hardware \\
-    PM 6 & Continue implementing in hardware and start testing \\
-    PM 7 & Finish testing and present final project \\
-    \bottomrule
-  \end{tabularx}
-\end{table}

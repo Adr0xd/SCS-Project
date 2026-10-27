@@ -3,8 +3,34 @@
 \chapter{Design}
 \label{ch:design}
 
-\section{Top-level overview}
+\section{Top-level architecture}
 \label{sec:top-level}
+
+The top-level architecture of the CORDIC-based sine unit is shown in
+\cref{fig:top-level}. It consists of a \textbf{main path}, which computes the result
+for normal inputs, a \textbf{small-argument path}, used when the reduced argument is
+very small, a \textbf{bypass path}, which forwards the inputs with a known result
+directly to the output, delayed by the same number of clock cycles so that the order of the results is preserved, and the
+\textbf{side information} that accompanies each input through the pipeline
+(\cref{pa:side-info}).
+
+Every input first passes through the input classification unit, which
+decides whether the input is computed or bypassed
+(\cref{sec:input-classification}). On the main path, the range reduction
+unit follows, which produces the reduced argument $r$ and the value
+$k \bmod 4$ (\cref{sec:range-reduction}). After these two preparation units,
+the CORDIC core, consisting of 40 pipeline stages, computes
+$x_{n} \approx \cos r$ and $y_{n} \approx \sin r$
+(\cref{sec:cordic-analysis}). The output of CORDIC is processed by the quadrant
+reconstruction unit, which either chooses between $\pm \sin$ and $\pm \cos$ using $k \bmod 4$,
+or takes $r \cdot \pi/2$ from the small argument path (\cref{tab:quadrant}).
+Finally, we normalize and round the result (\cref{sec:normalization}) before passing it to the output of the pipeline.
+The output selector picks between the computed and the bypassed result.
+
+The dotted red line represents the stall signal: when the last stage holds a valid result
+and the receiver is not ready, all stages hold their values and the unit stops accepting inputs.
+A global stall was chosen instead of an output buffer (\cref{sec:backpressure}), since it requires no
+additional storage for the results in flight.
 
 \begin{figure}[H]
   \centering
@@ -80,4 +106,154 @@
   }
   \caption{Top-level architecture of the CORDIC-based sine unit}
   \label{fig:top-level}
+\end{figure}
+
+\section{The CORDIC core}
+\label{sec:cordic-core}
+
+The CORDIC pipeline is built out of 40 pipeline stages, as presented in \cref{fig:cordic-chain}.
+Stage $i$ performs iteration $i$ of \cref{eq:cordic}. The stages differ only in their shift
+amount, $i$ positions, and in their constant $\alpha_{i} = \arctan(2^{-i}) / (\pi/2)$,
+the rotation angle expressed in quarter-turns (\cref{tab:precompval}).
+
+The starting values are initialized with $x_0 = 1 / K$, $y_0 = 0$, $z_0 = |r|$, which are
+passed to the first pipeline stage. The sign of $r$ is carried as side information, so that
+all values in the core remain non-negative.
+
+The output comes out of stage $39$, where $x_{40}$ will store the approximation of $\cos r$
+and $y_{40}$ will store the approximation of $\sin r$, in a fixed-point representation.
+
+\begin{figure}[H]
+  \centering
+  \resizebox{\textwidth}{!}{%
+    \begin{tikzpicture}[
+        font=\small,
+        arr/.style={-{Latex[length=2mm]}, thick},
+        st/.style={draw, rounded corners=2pt, fill=blue!10, minimum height=1.6cm,
+        minimum width=1.5cm, align=center},
+        box/.style={draw, rounded corners=2pt, fill=gray!8, minimum height=1.6cm,
+        align=center, font=\footnotesize},
+        lbl/.style={font=\footnotesize},
+        node distance=1.5cm
+      ]
+      \node[box] (ini) {Initial values\\[2pt]$x_0 = 1/K$\\$y_0 = 0$\\$z_0 = |r|$};
+      \node[st, right=of ini] (s0) {Stage\\$0$};
+      \node[st, right=of s0]  (s1) {Stage\\$1$};
+      \node[right=0.8cm of s1] (dots) {$\cdots$};
+      \node[st, right=0.8cm of dots] (s39) {Stage\\$39$};
+
+      \draw[arr] ($(ini.west)+(-0.9,0)$) -- node[above, lbl]{$|r|$} (ini.west);
+      \draw[arr] (ini) -- node[above, lbl]{$x_0, y_0, z_0$} (s0);
+      \draw[arr] (s0) -- node[above, lbl]{$x_1, y_1, z_1$} (s1);
+      \draw[arr] (s1) -- (dots);
+      \draw[arr] (dots) -- (s39);
+      \draw[arr] ($(s39.east)+(0,0.35)$) -- ++(1.3,0)
+      node[right, lbl]{$x_{40} \approx \cos r$};
+      \draw[arr] ($(s39.east)+(0,-0.35)$) -- ++(1.3,0)
+      node[right, lbl]{$y_{40} \approx \sin r$};
+
+      \node[lbl, below=0.15cm of s0]  {$\alpha_0 = 0.5$};
+      \node[lbl, below=0.15cm of s1]  {$\alpha_1 \approx 0.2952$};
+      \node[lbl, below=0.15cm of s39]
+      {$\alpha_{39} \approx 2^{-39}\!\cdot\!\tfrac{2}{\pi}$};
+    \end{tikzpicture}%
+  }
+  \caption{Chain of the 40 CORDIC pipeline stages}
+  \label{fig:cordic-chain}
+\end{figure}
+
+\paragraph{Structure of a pipeline stage.}
+The structure of stage $i$ is shown in \cref{fig:cordic-stage}. It contains
+the following elements:
+\begin{enumerate}
+  \item \textbf{Inputs:} the ($x_{i}$, $y_{i}$, $z_{i}$) triplet, together
+    with the valid bit and the side information, passed from the
+    previous stage.
+  \item \textbf{Two fixed shifts:} $y_{i} \gg i$ is passed to the $x$ path
+    and $x_{i} \gg i$ to the $y$ path. Since the shift amount of each
+    stage is constant, the shifts require no logic, only a selection of
+    bits. They are arithmetic shifts: the sign bit is replicated into the
+    vacated positions, so that negative values remain correct.
+  \item \textbf{Direction detection:} the sign of $z_{i}$ determines the
+    direction $d_{i}$, which selects for all three paths whether an
+    addition or a subtraction is performed.
+  \item \textbf{Three add/subtract units:} they compute
+    $x_{i+1} = x_{i} - d_{i}\,(y_{i} \gg i)$,
+    $y_{i+1} = y_{i} + d_{i}\,(x_{i} \gg i)$ and
+    $z_{i+1} = z_{i} - d_{i}\,\alpha_{i}$, where $\alpha_{i}$ is the
+    constant of the stage.
+  \item \textbf{Pipeline register:} it stores $x_{i+1}$, $y_{i+1}$,
+    $z_{i+1}$, the valid bit and the side information for the next
+    stage, and keeps its contents unchanged while the stall signal is
+    active (\cref{sec:top-level}).
+\end{enumerate}
+The values $x$, $y$ and $z$ are represented as 46-bit two's-complement
+fixed-point numbers, with one sign bit, one integer bit and 44 fractional
+bits, following the word length determined in \cref{pa:small-inputs}.
+
+\begin{figure}[H]
+  \centering
+  \resizebox{\textwidth}{!}{%
+    \begin{tikzpicture}[
+        font=\small,
+        arr/.style={-{Latex[length=2mm]}, thick},
+        ctl/.style={-{Latex[length=1.6mm]}, densely dashed},
+        stall/.style={-{Latex[length=1.6mm]}, densely dotted, red!70!black},
+        sh/.style={draw, densely dashed, minimum width=1.0cm, minimum height=0.6cm,
+        font=\footnotesize, fill=white},
+        as/.style={draw, circle, minimum size=0.8cm, inner sep=0pt, fill=gray!8},
+        box/.style={draw, fill=gray!8, font=\footnotesize, align=center},
+        lbl/.style={font=\footnotesize}
+      ]
+      \node (xi) at (0,0)    {$x_i$};
+      \node (yi) at (3.6,0)  {$y_i$};
+      \node (zi) at (7.2,0)  {$z_i$};
+      \node (si) at (10.4,0) {valid, side info};
+
+      \node[sh] (shy) at (1.2,-1.9) {$\gg i$};
+      \node[sh] (shx) at (2.4,-1.9) {$\gg i$};
+
+      \node[as] (ax) at (0,-3.2)   {$\mp$};
+      \node[as] (ay) at (3.6,-3.2) {$\pm$};
+      \node[as] (az) at (7.2,-3.2) {$\mp$};
+
+      \node[box] (ai) at (5.6,-1.9) {$\alpha_i$\\(constant)};
+      \node[box] (sg) at (8.9,-1.9) {sign of $z_i$};
+
+      \draw[arr] (xi) -- (ax);
+      \draw[arr] (yi) -- (ay);
+      \draw[arr] (zi) -- (az);
+      \draw[arr] (si) -- (10.4,-4.6);
+
+      \draw[arr] (0,-0.6) -| (shx.north);
+      \draw[arr] (3.6,-1.0) -| (shy.north);
+      \fill (0,-0.6) circle (1.5pt);
+      \fill (3.6,-1.0) circle (1.5pt);
+      \draw[arr] (shy.south) |- (ax.east);
+      \draw[arr] (shx.south) |- (ay.west);
+      \draw[arr] (ai.south) |- (az.west);
+
+      \draw[arr] (7.2,-0.8) -| (sg.north);
+      \fill (7.2,-0.8) circle (1.5pt);
+      \draw[densely dashed] (sg.south) |- (8.9,-4.0) -- (ax.south west |- 0,-4.0);
+      \foreach \a in {ax, ay, az}
+      \draw[ctl] (\a.south west |- 0,-4.0) -- (\a.south west);
+      \node[lbl, above] at (5.4,-4.0) {$d_i$};
+
+      \draw[fill=blue!10] (-0.9,-4.6) rectangle (11.8,-5.2);
+      \foreach \xx in {1.8, 5.4, 9.0} \draw (\xx,-4.6) -- (\xx,-5.2);
+      \node[lbl] at (0.45,-4.9) {$x_{i+1}$};
+      \node[lbl] at (3.6,-4.9)  {$y_{i+1}$};
+      \node[lbl] at (7.2,-4.9)  {$z_{i+1}$};
+      \node[lbl] at (10.4,-4.9) {valid, side info};
+      \foreach \a in {ax, ay, az} \draw[arr] (\a.south) -- (\a.south |- 0,-4.6);
+      \node[lbl, anchor=west] at (11.9,-4.9) {pipeline register};
+
+      \foreach \xx in {0, 3.6, 7.2, 10.4} \draw[arr] (\xx,-5.2) -- (\xx,-5.8);
+      \draw[stall] (12.6,-3.9) node[above, lbl, text=red!70!black]{stall: hold}
+      -- (12.6,-4.4) -| (11.3,-4.6);
+    \end{tikzpicture}%
+  }
+  \caption{Structure of CORDIC pipeline stage $i$}
+  \label{fig:cordic-stage}
 \end{figure}
