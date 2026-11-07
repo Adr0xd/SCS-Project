@@ -15,6 +15,22 @@
 \usepackage{enumitem}
 \usepackage{microtype}
 \usepackage{tikz}
+\usepackage{listings}
+
+\lstset{
+  language=VHDL,
+  basicstyle=\ttfamily\footnotesize,
+  keywordstyle=\bfseries\color{blue!60!black},
+  commentstyle=\itshape\color{gray},
+  stringstyle=\color{red!60!black},
+  numbers=left, numberstyle=\tiny\color{gray}, numbersep=6pt,
+  frame=single, rulecolor=\color{gray!50},
+  breaklines=true, showstringspaces=false,
+  tabsize=4, columns=fullflexible,
+  captionpos=b, abovecaptionskip=4pt
+}
+\crefname{lstlisting}{listing}{listings}
+\Crefname{lstlisting}{Listing}{Listings}
 
 \setlength{\abovecaptionskip}{4pt}
 \usetikzlibrary{positioning, arrows.meta, calc}
@@ -38,6 +54,7 @@
 \input{chapters/02-bibliographic-study}
 \input{chapters/03-analysis.tex}
 \input{chapters/04-design.tex}
+\input{chapters/05-code.tex}
 
 \bibliographystyle{ieeetr}
 \bibliography{references}

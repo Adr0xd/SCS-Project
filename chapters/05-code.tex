@@ -1,0 +1,32 @@
+% !TEX root = ../main.tex
+
+\chapter{Implementation}
+\label{ch:implementation}
+
+\section{Input classification and range reduction unit}
+\label{sec:classification_rr}
+
+The Input classification and range reduction units are merged, as mentioned in \cref{sec:range-red-unit}.
+They represent the first block of the pipeline and the
+
+\begin{lstlisting}[caption = {Input classification and range reduction entity declaration}, label = {lst:classification_reduction_unit}]
+ENTITY classification_reduction_unit IS
+    PORT (
+        clk : IN STD_LOGIC;
+        rst : IN STD_LOGIC;
+        en : IN STD_LOGIC;
+        x_in : IN STD_LOGIC_VECTOR(31 DOWNTO 0);
+        valid_in : IN STD_LOGIC;
+        -- 7 = sign_r;
+        -- 6 = sign_x;
+        -- 5:4 = kmod4;
+        -- 3:1 = input_cls
+        -- 0: small input flag
+        side_info_out : OUT STD_LOGIC_VECTOR(7 DOWNTO 0);
+        x_out : OUT STD_LOGIC_VECTOR(31 DOWNTO 0);
+        z_out : OUT STD_LOGIC_VECTOR(45 DOWNTO 0);      -- |r|, 2 int + 44 frac bits
+        rsmall_out : OUT STD_LOGIC_VECTOR(47 DOWNTO 0); -- |r| bits 2^-13 .. 2^-60
+        valid_out : OUT STD_LOGIC
+    );
+END classification_reduction_unit;
+\end{lstlisting}
