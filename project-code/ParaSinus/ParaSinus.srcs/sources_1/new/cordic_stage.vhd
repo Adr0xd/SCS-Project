@@ -17,11 +17,9 @@
 -- Additional Comments:
 -- 
 ----------------------------------------------------------------------------------
-
-
-library IEEE;
-use IEEE.STD_LOGIC_1164.ALL;
-use ieee.numeric_std .all;
+LIBRARY IEEE;
+USE IEEE.STD_LOGIC_1164.ALL;
+USE ieee.numeric_std.ALL;
 
 -- Uncomment the following library declaration if using
 -- arithmetic functions with Signed or Unsigned values
@@ -32,45 +30,59 @@ use ieee.numeric_std .all;
 --library UNISIM;
 --use UNISIM.VComponents.all;
 
-entity cordic_stage is
-  Generic(I: natural := 1;
-          ALPHA: signed(45 downto 0)
-          );
-  Port (clk: in std_logic;
-        en: in std_logic;
-        x_i: in signed(45 downto 0);
-        y_i: in signed(45 downto 0);
-        z_i: in signed(45 downto 0);
-        valid: in std_logic;
-        
+ENTITY cordic_stage IS
+    GENERIC (
+        I : NATURAL := 1;
+        ALPHA : signed(45 DOWNTO 0)
+    );
+    PORT (
+        clk : IN STD_LOGIC;
+        rst : IN STD_LOGIC;
+        en : IN STD_LOGIC;
+        x_i : IN signed(45 DOWNTO 0);
+        y_i : IN signed(45 DOWNTO 0);
+        z_i : IN signed(45 DOWNTO 0);
+        valid_in : IN STD_LOGIC;
+
         -- 7 = sign_r;
         -- 6 = sign_x;
         -- 5:4 = kmod4;
         -- 3:1 = input_cls
         -- 0: stall  
-        side_info: in std_logic_vector(7 downto 0);
-       
-        x_i_plus_one: out signed(45 downto 0);
-        y_i_plus_one: out signed(45 downto 0);
-        z_i_plus_one: out signed(45 downto 0);
-        
-        valid_out: out std_logic;
-        side_info_out: out std_logic_vector(7 downto 0)
-        
-   );
-end cordic_stage;
+        side_info_in : IN STD_LOGIC_VECTOR(7 DOWNTO 0);
 
-architecture Behavioral of cordic_stage is
+        x_i_plus_one : OUT signed(45 DOWNTO 0);
+        y_i_plus_one : OUT signed(45 DOWNTO 0);
+        z_i_plus_one : OUT signed(45 DOWNTO 0);
 
-begin
+        valid_out : OUT STD_LOGIC;
+        side_info_out : OUT STD_LOGIC_VECTOR(7 DOWNTO 0)
 
-    process(clk)
-    begin
-        if rising_edge(clk) then
-            if en = 
-        end if;
-    
-    end process;
+    );
+END cordic_stage;
 
+ARCHITECTURE Behavioral OF cordic_stage IS
 
-end Behavioral;
+BEGIN
+
+    PROCESS (clk)
+    BEGIN
+        IF rising_edge(clk) THEN
+            IF rst = '1' THEN
+                valid_out <= '0';
+            ELSIF en = '1' THEN
+                IF z_i(45) = '0' THEN
+                    x_i_plus_one <= x_i - shift_right(y_i, I);
+                    y_i_plus_one <= y_i + shift_right(x_i, I);
+                    z_i_plus_one <= z_i - ALPHA;
+                ELSE
+                    x_i_plus_one <= x_i + shift_right(y_i, I);
+                    y_i_plus_one <= y_i - shift_right(x_i, I);
+                    z_i_plus_one <= z_i + ALPHA;
+                END IF;
+                valid_out <= valid_in;
+                side_info_out <= side_info_in;
+            END IF;
+        END IF;
+    END PROCESS;
+END Behavioral;

@@ -1,0 +1,156 @@
+LIBRARY ieee;
+
+USE ieee.std_logic_1164.ALL;
+USE ieee.numeric_std_unsigned.ALL;
+
+ENTITY cordic_core IS
+    GENERIC (
+        N : INTEGER := 46 -- number of bits for x, y, z
+    );
+    PORT (
+        clk : IN STD_LOGIC;
+        rst : IN STD_LOGIC;
+        en : IN STD_LOGIC;
+        z_in : IN STD_LOGIC_VECTOR(N - 1 DOWNTO 0);
+        valid_in : IN STD_LOGIC;
+
+        -- 7 = sign_r;
+        -- 6 = sign_x;
+        -- 5:4 = kmod4;
+        -- 3:1 = input_cls
+        -- 0: small input flag
+        side_info_in : IN STD_LOGIC_VECTOR(7 DOWNTO 0);
+
+        x_out : OUT STD_LOGIC_VECTOR(N - 1 DOWNTO 0);
+        y_out : OUT STD_LOGIC_VECTOR(N - 1 DOWNTO 0);
+        z_out : OUT STD_LOGIC_VECTOR(N - 1 DOWNTO 0);
+        valid_out : OUT STD_LOGIC;
+        side_info_out : OUT STD_LOGIC_VECTOR(7 DOWNTO 0)
+    );
+END cordic_core;
+
+ARCHITECTURE behavioral OF cordic_core IS
+
+    TYPE angle_array IS ARRAY (0 TO 39) OF STD_LOGIC_VECTOR(45 DOWNTO 0);
+    CONSTANT ALPHA_TABLE : angle_array := (
+        "0010000000000000000000000000000000000000000000",
+        "0001001011100100000001010001110110011101111101",
+        "0000100111111011001110000101101101011110111001",
+        "0000010100010001000100011101010000011101110111",
+        "0000001010001011000011010100001100001110010110",
+        "0000000101000101110101111110000101011001000001",
+        "0000000010100010111101100001111001011100001010",
+        "0000000001010001011111000101010100010001110101",
+        "0000000000101000101111100101001101000110110100",
+        "0000000000010100010111110010111010111011001100",
+        "0000000000001010001011111001100000000000100100",
+        "0000000000000101000101111100110000010100101010",
+        "0000000000000010100010111110011000001100111000",
+        "0000000000000001010001011111001100000110110000",
+        "0000000000000000101000101111100110000011011011",
+        "0000000000000000010100010111110011000001101110",
+        "0000000000000000001010001011111001100000110111",
+        "0000000000000000000101000101111100110000011011",
+        "0000000000000000000010100010111110011000001110",
+        "0000000000000000000001010001011111001100000111",
+        "0000000000000000000000101000101111100110000011",
+        "0000000000000000000000010100010111110011000010",
+        "0000000000000000000000001010001011111001100001",
+        "0000000000000000000000000101000101111100110000",
+        "0000000000000000000000000010100010111110011000",
+        "0000000000000000000000000001010001011111001100",
+        "0000000000000000000000000000101000101111100110",
+        "0000000000000000000000000000010100010111110011",
+        "0000000000000000000000000000001010001011111010",
+        "0000000000000000000000000000000101000101111101",
+        "0000000000000000000000000000000010100010111110",
+        "0000000000000000000000000000000001010001011111",
+        "0000000000000000000000000000000000101000110000",
+        "0000000000000000000000000000000000010100011000",
+        "0000000000000000000000000000000000001010001100",
+        "0000000000000000000000000000000000000101000110",
+        "0000000000000000000000000000000000000010100011",
+        "0000000000000000000000000000000000000001010001",
+        "0000000000000000000000000000000000000000101001",
+        "0000000000000000000000000000000000000000010100"
+    );
+    CONSTANT INV_K : STD_LOGIC_VECTOR(45 DOWNTO 0) := "0010011011011101001110110110101000010000110110";
+
+    COMPONENT cordic_stage IS
+        GENERIC (
+            I : NATURAL := 1;
+            ALPHA : STD_LOGIC_VECTOR(45 DOWNTO 0)
+        );
+        PORT (
+            clk : IN STD_LOGIC;
+            rst : IN STD_LOGIC;
+            en : IN STD_LOGIC;
+            x_i : IN STD_LOGIC_VECTOR(45 DOWNTO 0);
+            y_i : IN STD_LOGIC_VECTOR(45 DOWNTO 0);
+            z_i : IN STD_LOGIC_VECTOR(45 DOWNTO 0);
+            valid_in : IN STD_LOGIC;
+
+            -- 7 = sign_r;
+            -- 6 = sign_x;
+            -- 5:4 = kmod4;
+            -- 3:1 = input_cls
+            -- 0: small input flag
+            side_info_in : IN STD_LOGIC_VECTOR(7 DOWNTO 0);
+
+            x_i_plus_one : OUT STD_LOGIC_VECTOR(45 DOWNTO 0);
+            y_i_plus_one : OUT STD_LOGIC_VECTOR(45 DOWNTO 0);
+            z_i_plus_one : OUT STD_LOGIC_VECTOR(45 DOWNTO 0);
+
+            valid_out : OUT STD_LOGIC;
+            side_info_out : OUT STD_LOGIC_VECTOR(7 DOWNTO 0)
+
+        );
+    END COMPONENT cordic_stage;
+
+    TYPE data_array IS ARRAY (0 TO 40) OF STD_LOGIC_VECTOR(45 DOWNTO 0);
+    TYPE side_info_array IS ARRAY (0 TO 40) OF STD_LOGIC_VECTOR(7 DOWNTO 0);
+
+    SIGNAL x, y, z : data_array;
+    SIGNAL valid : STD_LOGIC_VECTOR(0 TO 40);
+    SIGNAL side_info : side_info_array;
+
+BEGIN
+
+    x(0) <= INV_K;
+    y(0) <= (others => '0');
+    z(0) <= z_in;
+    valid(0) <= valid_in;
+    side_info(0) <= side_info_in;
+
+    cordic_stages:FOR k IN 0 TO 39 GENERATE
+        stage : cordic_stage
+        GENERIC MAP(
+            I => k,
+            ALPHA => ALPHA_TABLE(k)
+        )
+        PORT MAP(
+            clk => clk,
+            rst => rst,
+            en => en,
+            x_i => x(k),
+            y_i => y(k),
+            z_i => z(k),
+            valid_in => valid(k),
+            side_info_in => side_info(k),
+
+            x_i_plus_one => x(k + 1),
+            y_i_plus_one => y(k + 1),
+            z_i_plus_one => z(k + 1),
+
+            valid_out => valid(k + 1),
+            side_info_out => side_info(k + 1)
+        );
+    END GENERATE;
+
+    x_out <= x(40);
+    y_out <= y(40);
+    z_out <= z(40);
+    valid_out <= valid(40);
+    side_info_out <= side_info(40);
+
+END behavioral;
