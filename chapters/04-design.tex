@@ -108,6 +108,93 @@ additional storage for the results in flight.
   \label{fig:top-level}
 \end{figure}
 
+\section{Range reduction unit}
+\label{sec:range-red-unit}
+
+The range reduction unit takes the binary32 fields of input $x$ (sign, exponent $e$,
+fraction $f$) and produces $|r|$, expressed in quarter turns, the sign of $|r|$,
+$k \bmod 4$ and a ``small argument'' flag. The range reduction unit is the first part of the
+entire pipeline as the input classification part works on the same unpacked fields ($e$ and $f$).
+The pipeline of the unit is shown in \cref{fig:range-reduction-unit}.
+
+\begin{figure}[H]
+  \centering
+  \resizebox{\textwidth}{!}{%
+    \begin{tikzpicture}[
+        font=\small,
+        arr/.style={-{Latex[length=2mm]}, thick},
+        ctl/.style={-{Latex[length=1.6mm]}, densely dashed},
+        stall/.style={-{Latex[length=1.6mm]}, densely dotted, red!70!black},
+        box/.style={draw, rounded corners=2pt, fill=gray!8, align=center,
+        font=\footnotesize},
+        lbl/.style={font=\footnotesize}
+      ]
+      \foreach \xx/\n in {3.0/1, 7.0/2, 11.4/3, 15.6/4} {
+        \draw[fill=blue!10] (\xx-0.12,-2.0) rectangle (\xx+0.12,1.6);
+        \node[lbl] at (\xx,1.85) {R\n};
+      }
+      \node[lbl, text=gray] at (1.3,2.25)  {stage 1: unpack};
+      \node[lbl, text=gray] at (5.0,2.25)  {stage 2: window table};
+      \node[lbl, text=gray] at (9.2,2.25)  {stage 3: multiplication};
+      \node[lbl, text=gray] at (13.5,2.25) {stage 4: extraction of $k$ and $r$};
+
+      \node[lbl, align=right, anchor=east] (xin) at (-0.1,-0.4) {$x$\\$(s_x, e, f)$};
+      \node[box, minimum height=1.4cm, text width=1.5cm] (unp) at (1.2,-0.4)
+      {Unpack\\$M = 1.f$};
+      \draw[arr] (xin.east) -- (unp.west);
+      \draw[arr] ($(unp.east)+(0,0.35)$) -- node[above, lbl]{$e$} (2.88,-0.05);
+      \draw[arr] ($(unp.east)+(0,-0.35)$) -- node[below, lbl]{$M$} (2.88,-0.75);
+
+      \node[box, minimum height=1.2cm, text width=2.4cm] (win) at (5.0,0.25)
+      {Window of $2/\pi$\\indexed by $e$\\(256 entries)};
+      \draw[arr] (3.12,-0.05) -- ($(win.west)+(0,-0.3)$);
+      \draw[arr] (3.12,-0.75) -- node[below, lbl]{$M$} (6.88,-0.75);
+      \draw[arr] (win.east) -- node[above, lbl]{$W$} (6.88,0.25);
+
+      \node[box, minimum height=1.9cm, text width=2.6cm] (mul) at (9.2,-0.25)
+      {Multiplication\\$M \times W$\\[2pt]\scriptsize(divided over\\several stages)};
+      \draw[arr] (7.12,0.25) -- ($(mul.west)+(0,0.5)$);
+      \draw[arr] (7.12,-0.75) -- ($(mul.west)+(0,-0.5)$);
+      \draw[arr] (mul.east) -- (11.28,-0.25);
+      \node[lbl, above] at (10.95,-0.2) {$x \cdot \tfrac{2}{\pi}$};
+
+      \node[box, minimum height=1.9cm, text width=3.0cm] (ext) at (13.5,-0.25)
+      {Split into integer\\and fractional part;\\round to nearest:\\$k \bmod 4$, $|r|$, $s_r$;\\small-argument test};
+      \draw[arr] (11.52,-0.25) -- (ext.west);
+      \draw[arr] (ext.east) -- (15.48,-0.25);
+
+      \foreach \yy/\t in {0.45/{$k \bmod 4$}, 0.0/{$|r|$}, -0.45/{$s_r$}, -0.9/{small}}
+      \draw[arr] (15.72,\yy-0.15) -- ++(0.9,0) node[right, lbl]{\t};
+
+      \draw[ctl] (-0.4,1.3) -- (16.6,1.3);
+      \node[lbl, anchor=south west] at (-0.4,1.3) {valid, $s_x$, input class};
+      \draw[densely dotted, red!70!black] (16.6,-2.4)
+      node[right, lbl, text=red!70!black]{stall} -- (2.4,-2.4);
+      \foreach \xx in {3.0, 7.0, 11.4, 15.6}
+      \draw[stall] (\xx,-2.4) -- (\xx,-2.0);
+    \end{tikzpicture}%
+  }
+  \caption{Pipeline of the range reduction unit}
+  \label{fig:range-reduction-unit}
+\end{figure}
+
+\paragraph{Structure of the range reduction unit.}
+\label{pa:rru-struc}
+
+The unit consists of four stages:
+\begin{enumerate}[label=\textbf{Stage \arabic*.}, ref=\arabic*, leftmargin=*]
+  \item The input is unpacked, and the significand $M = 1.f$ is built as a 24-bit integer (\cref{sec:range-reduction}).
+  \item The exponent selects a precomputed window $W$ of the bits of $2/\pi$. We store
+    these values in a lookup-table with 256 entries instead of using a shifter~\cite{ly2026payne}.
+  \item We multiply $M \times W$ which gives $x \cdot 2/\pi$. This is the widest operation of the
+    design, so it is going to be divided into more stages, as discussed in \cref{sec:pipeline}.
+  \item The integer part of the multiplication gives $k \bmod 4$. If the fraction is greater
+    or equal to 0.5, $k$ is getting rounded up and $|r| = 1 - fraction$. The small argument
+    test checks whether the first 12 fractional bits of $|r|$ are all zero.
+\end{enumerate}
+
+The inputs with $|x| < \pi/4$ need no special case, since their product is below $0.5$ and $k=0$ comes out automatically.
+
 \section{The CORDIC core}
 \label{sec:cordic-core}
 
@@ -115,13 +202,6 @@ The CORDIC pipeline is built out of 40 pipeline stages, as presented in \cref{fi
 Stage $i$ performs iteration $i$ of \cref{eq:cordic}. The stages differ only in their shift
 amount, $i$ positions, and in their constant $\alpha_{i} = \arctan(2^{-i}) / (\pi/2)$,
 the rotation angle expressed in quarter-turns (\cref{tab:precompval}).
-
-The starting values are initialized with $x_0 = 1 / K$, $y_0 = 0$, $z_0 = |r|$, which are
-passed to the first pipeline stage. The sign of $r$ is carried as side information, so that
-all values in the core remain non-negative.
-
-The output comes out of stage $39$, where $x_{40}$ will store the approximation of $\cos r$
-and $y_{40}$ will store the approximation of $\sin r$, in a fixed-point representation.
 
 \begin{figure}[H]
   \centering
@@ -158,42 +238,21 @@ and $y_{40}$ will store the approximation of $\sin r$, in a fixed-point represen
       {$\alpha_{39} \approx 2^{-39}\!\cdot\!\tfrac{2}{\pi}$};
     \end{tikzpicture}%
   }
+  \vspace{-1.5em}
   \caption{Chain of the 40 CORDIC pipeline stages}
   \label{fig:cordic-chain}
 \end{figure}
 
-\paragraph{Structure of a pipeline stage.}
-The structure of stage $i$ is shown in \cref{fig:cordic-stage}. It contains
-the following elements:
-\begin{enumerate}
-  \item \textbf{Inputs:} the ($x_{i}$, $y_{i}$, $z_{i}$) triplet, together
-    with the valid bit and the side information, passed from the
-    previous stage.
-  \item \textbf{Two fixed shifts:} $y_{i} \gg i$ is passed to the $x$ path
-    and $x_{i} \gg i$ to the $y$ path. Since the shift amount of each
-    stage is constant, the shifts require no logic, only a selection of
-    bits. They are arithmetic shifts: the sign bit is replicated into the
-    vacated positions, so that negative values remain correct.
-  \item \textbf{Direction detection:} the sign of $z_{i}$ determines the
-    direction $d_{i}$, which selects for all three paths whether an
-    addition or a subtraction is performed.
-  \item \textbf{Three add/subtract units:} they compute
-    $x_{i+1} = x_{i} - d_{i}\,(y_{i} \gg i)$,
-    $y_{i+1} = y_{i} + d_{i}\,(x_{i} \gg i)$ and
-    $z_{i+1} = z_{i} - d_{i}\,\alpha_{i}$, where $\alpha_{i}$ is the
-    constant of the stage.
-  \item \textbf{Pipeline register:} it stores $x_{i+1}$, $y_{i+1}$,
-    $z_{i+1}$, the valid bit and the side information for the next
-    stage, and keeps its contents unchanged while the stall signal is
-    active (\cref{sec:top-level}).
-\end{enumerate}
-The values $x$, $y$ and $z$ are represented as 46-bit two's-complement
-fixed-point numbers, with one sign bit, one integer bit and 44 fractional
-bits, following the word length determined in \cref{pa:small-inputs}.
+The starting values are initialized with $x_0 = 1 / K$, $y_0 = 0$, $z_0 = |r|$, which are
+passed to the first pipeline stage. The sign of $r$ is carried as side information, so that
+all values in the core remain non-negative.
+
+The output comes out of stage $39$, where $x_{40}$ will store the approximation of $\cos r$
+and $y_{40}$ will store the approximation of $\sin r$, in a fixed-point representation.
 
 \begin{figure}[H]
   \centering
-  \resizebox{\textwidth}{!}{%
+  \resizebox{0.85\textwidth}{!}{%
     \begin{tikzpicture}[
         font=\small,
         arr/.style={-{Latex[length=2mm]}, thick},
@@ -257,3 +316,244 @@ bits, following the word length determined in \cref{pa:small-inputs}.
   \caption{Structure of CORDIC pipeline stage $i$}
   \label{fig:cordic-stage}
 \end{figure}
+
+\paragraph{Structure of a pipeline stage.}
+The structure of stage $i$ is shown in \cref{fig:cordic-stage}. It contains
+the following elements:
+\begin{enumerate}
+  \item \textbf{Inputs:} the ($x_{i}$, $y_{i}$, $z_{i}$) triplet, together
+    with the valid bit and the side information, passed from the
+    previous stage.
+  \item \textbf{Two fixed shifts:} $y_{i} \gg i$ is passed to the $x$ path
+    and $x_{i} \gg i$ to the $y$ path. Since the shift amount of each
+    stage is constant, the shifts require no logic, only a selection of
+    bits. They are arithmetic shifts: the sign bit is replicated into the
+    vacated positions, so that negative values remain correct.
+  \item \textbf{Direction detection:} the sign of $z_{i}$ determines the
+    direction $d_{i}$, which selects for all three paths whether an
+    addition or a subtraction is performed.
+  \item \textbf{Three add/subtract units:} they compute
+    $x_{i+1} = x_{i} - d_{i}\,(y_{i} \gg i)$,
+    $y_{i+1} = y_{i} + d_{i}\,(x_{i} \gg i)$ and
+    $z_{i+1} = z_{i} - d_{i}\,\alpha_{i}$, where $\alpha_{i}$ is the
+    constant of the stage.
+  \item \textbf{Pipeline register:} it stores $x_{i+1}$, $y_{i+1}$,
+    $z_{i+1}$, the valid bit and the side information for the next
+    stage, and keeps its contents unchanged while the stall signal is
+    active (\cref{sec:top-level}).
+\end{enumerate}
+The values $x$, $y$ and $z$ are represented as 46-bit two's-complement
+fixed-point numbers, with one sign bit, one integer bit and 44 fractional
+bits, following the word length determined in \cref{pa:small-inputs}.
+
+\newpage
+
+\section{The Lookup Table Core}
+\label{sec:lut-core}
+
+The Lookup Table core goes into the same place as the CORDIC core in the top-level
+architecture (\cref{fig:top-level}). Its job is to take $|r|$ and the quadrant,
+and return either $\sin r$ or $\cos r$ using the table described in \cref{sec:lut}.
+
+\begin{figure}[H]
+  \centering
+  \resizebox{0.85\textwidth}{!}{%
+    \begin{tikzpicture}[
+        font=\small,
+        arr/.style={-{Latex[length=2mm]}, thick},
+        ctl/.style={-{Latex[length=1.6mm]}, densely dashed},
+        stall/.style={-{Latex[length=1.6mm]}, densely dotted, red!70!black},
+        box/.style={draw, rounded corners=2pt, fill=gray!8, align=center,
+        font=\footnotesize},
+        op/.style={draw, circle, minimum size=0.8cm, inner sep=0pt, fill=gray!8},
+        lbl/.style={font=\footnotesize}
+      ]
+      % ----- pipeline registers R1..R4 -----
+      \foreach \xx/\n in {4.0/1, 7.8/2, 10.6/3, 13.0/4} {
+        \draw[fill=blue!10] (\xx-0.12,-1.9) rectangle (\xx+0.12,1.5);
+        \node[lbl] at (\xx,1.75) {R\n};
+      }
+      \node[lbl, text=gray] at (2.0,2.15)  {stage 1: argument};
+      \node[lbl, text=gray] at (5.9,2.15)  {stage 2: table read};
+      \node[lbl, text=gray] at (9.2,2.15)  {stage 3: multiply};
+      \node[lbl, text=gray] at (11.8,2.15) {stage 4: add};
+
+      % ----- stage 1: argument selection -----
+      \node (rin) at (-0.6,-0.35) {$|r|$};
+      \node[box] (sub) at (1.4,0.55) {$1 - |r|$};
+      \coordinate (mx) at (2.9,0);
+      \draw[fill=gray!8] ($(mx)+(0,0.75)$) -- ($(mx)+(0.5,0.45)$)
+      -- ($(mx)+(0.5,-0.45)$) -- ($(mx)+(0,-0.75)$) -- cycle;
+      \draw[arr] (rin) -- node[pos=0.55, below, lbl]{sine} ($(mx)+(0,-0.35)$);
+      \fill (0.3,-0.35) circle (1.5pt);
+      \draw[arr] (0.3,-0.35) |- (sub.west);
+      \draw[arr] (sub.east) -- ($(mx)+(0,0.55)$ |- sub.east)
+      node[pos=0.5, above, lbl]{cosine};
+      \node (k0) at (3.15,-1.45) {$k_0$};
+      \draw[ctl] (k0) -- ($(mx)+(0.25,-0.6)$);
+      \draw[arr] ($(mx)+(0.5,0)$) -- node[above, lbl]{$a$} (3.88,0);
+
+      % ----- stage 2: split and table read -----
+      \draw[arr] (4.12,0.2) -- node[above, lbl]{$i$} (5.15,0.2);
+      \node[lbl] at (4.65,-0.1) {12 bits};
+      \node[box, minimum width=1.6cm, minimum height=1.3cm] (tab) at (5.95,0.2)
+      {Table\\$4097 \times$\\$(T, \Delta)$};
+      \draw[arr] ($(tab.east)+(0,0.4)$) -- node[above, lbl]{$T[i]$} (7.68,0.6);
+      \draw[arr] ($(tab.east)+(0,-0.2)$) -- node[above, lbl]{$\Delta[i]$} (7.68,0.0);
+      \draw[arr] (4.12,-1.35) -- node[above, lbl]{$d$ (remaining bits)} (7.68,-1.35);
+
+      % ----- stage 3: multiplication -----
+      \node[op] (mul) at (9.2,-0.7) {$\times$};
+      \draw[arr] (7.92,0.0) -| (mul.north);
+      \draw[arr] (7.92,-1.35) -| (mul.south);
+      \draw[arr] (mul.east) -- (10.48,-0.7);
+      \node[lbl, above] at (10.05,-0.7) {$d\,\Delta$};
+      \draw[arr] (7.92,0.6) -- node[above, lbl]{$T[i]$} (10.48,0.6);
+
+      % ----- stage 4: addition -----
+      \node[op] (add) at (11.8,-0.05) {$+$};
+      \draw[arr] (10.72,0.6) -| (add.north);
+      \draw[arr] (10.72,-0.7) -| (add.south);
+      \draw[arr] (add.east) -- (12.88,-0.05);
+      \draw[arr] (13.12,-0.05) -- ++(0.9,0)
+      node[right, lbl, align=left]{$\approx \sin r$\\or $\cos r$};
+
+      % ----- side information and stall -----
+      \draw[ctl] (-0.6,1.25) -- node[pos=0.07, above, lbl]{valid, side info} (14.0,1.25);
+      \draw[densely dotted, red!70!black] (14.0,-2.3)
+      node[right, lbl, text=red!70!black]{stall} -- (3.0,-2.3);
+      \foreach \xx in {4.0, 7.8, 10.6, 13.0}
+      \draw[stall] (\xx,-2.3) -- (\xx,-1.9);
+    \end{tikzpicture}%
+  }
+  \caption{Pipeline of the table-based core}
+  \label{fig:lut-core}
+\end{figure}
+
+\paragraph{Structure of the Lookup Table Pipeline. }
+\label{pa:struc-lut}
+
+\begin{enumerate}[label=\textbf{Stage \arabic*.}, ref=\arabic*, leftmargin=*]
+  \item \textbf{Argument selection.} The input of the Lookup Table core are the $|r|$
+    and the quadrant's least significant bit -- $k_{0}$ of $k \bmod 4$ -- which
+    decides if either the sine of cosine is needed, selecting between $|r|$ and
+    $1 - |r|$ as the table address input $a$ (\cref{eq:sincosqt}).
+  \item \textbf{Table read.} The output $a$ from the first stage is splits into
+    two parts: the top 12 bits represent the index $i$, which selects the table
+    entry $T[i]$ and the difference $\Delta[i] = T[i+1] - T[i]$, and the remaining
+    bottom bits $d$ (passed to the next stage).
+  \item \textbf{Multiplication.} $d$ is multiplied with $\Delta[i]$ to get the value
+    that needs to be added to $T[i]$ (which waits one stage to get to the adder at
+    the same time as the multiplication result).
+  \item \textbf{Final addition.} Following \cref{eq:lerp}, we add $T[i]$ and the
+    multiplication result $d \cdot \Delta[i]$ to get the final approximation of $\sin r$ or $\cos r$
+    as a fixed-point value to send to the normalization unit.
+\end{enumerate}
+
+The table stores the values $T[i]$ with 40 fractional bits and the
+differences $\Delta[i]$ with 29 fractional bits, while the fraction $d$ has
+around 32 bits; these widths are required for the $2^{-36}$ accuracy of small
+results (\cref{pa:small-inputs}). The latency of the core is 4 clock cycles,
+compared with the 40 cycles of the CORDIC core, since the table-based method
+trades memory and a multiplier for a much shorter pipeline
+(\cref{sec:pipeline}).
+
+\newpage
+
+\section{Reconstruction and Normalization unit}
+\label{sec:reconst-norm-unit}
+
+The reconstruction and normalization unit converts the fixed-point result of the approximation
+core into the finaly 32-bit floating point value. Since both approximation methods output a
+non-negative fixed-point value between 0 and 1, the same unit will be used for the CORDIC-based
+core and the table-based core. The inputs are the result of the core, the value $|r| \cdot \pi/2$
+of the small argument path and the side information carried through the pipeline (the valid bit,
+$k \bmod 4$, the signs of the original input $x$ and $r$, the small argument flag and the input class).
+The output is the final output, namely the binary32 result $\sin x$. The unit is organised into a
+five-stage pipeline shown in \cref{fig:norm-unit}.
+
+\begin{figure}[H]
+  \centering
+  \resizebox{\textwidth}{!}{%
+    \begin{tikzpicture}[
+        font=\small,
+        arr/.style={-{Latex[length=2mm]}, thick},
+        ctl/.style={-{Latex[length=1.6mm]}, densely dashed},
+        stall/.style={-{Latex[length=1.6mm]}, densely dotted, red!70!black},
+        box/.style={draw, rounded corners=2pt, fill=gray!8, align=center,
+        font=\footnotesize, minimum height=1.6cm},
+        lbl/.style={font=\footnotesize}
+      ]
+      \foreach \xx/\n in {3.6/1, 6.6/2, 9.8/3, 13.0/4, 16.0/5} {
+        \draw[fill=blue!10] (\xx-0.12,-2.0) rectangle (\xx+0.12,1.6);
+        \node[lbl] at (\xx,1.85) {R\n};
+      }
+      \node[lbl, text=gray] at (1.6,2.55)  {stage 1: select};
+      \node[lbl, text=gray] at (5.1,2.55)  {stage 2: count};
+      \node[lbl, text=gray] at (8.2,2.55)  {stage 3: normalize};
+      \node[lbl, text=gray] at (11.4,2.55) {stage 4: round};
+      \node[lbl, text=gray] at (14.5,2.55) {stage 5: output};
+
+      \node[lbl, align=right, anchor=east] (cin) at (-0.1,-0.25)
+      {core result\\($x_{40}$, $y_{40}$\\or table value)};
+      \node[lbl, align=right, anchor=east] (sin) at (-0.1,-1.35)
+      {$|r| \cdot \pi/2$\\(small argument)};
+      \node[box, text width=2.3cm] (sel) at (1.6,-0.45)
+      {Magnitude $m$\\and sign\\[2pt]$s = s_x \oplus k_1$\\$\oplus\,(s_r \wedge \neg k_0)$};
+      \draw[arr] (cin.east) -- ($(sel.west)+(0,0.2)$);
+      \draw[arr] (sin.east) -| ($(sel.west)+(-0.25,-0.45)$) -- ($(sel.west)+(0,-0.45)$);
+      \draw[arr] (sel.east) -- (3.48,-0.45);
+      \node[lbl, above] at (3.0,-0.45) {$m$, $s$};
+
+      \node[box, text width=1.9cm] (lzc) at (5.1,-0.45) {Leading-zero\\count $z'$};
+      \draw[arr] (3.72,-0.45) -- (lzc.west);
+      \draw[arr] (lzc.east) -- (6.48,-0.45);
+
+      \node[box, text width=2.2cm] (nrm) at (8.2,-0.45)
+      {Shift left\\by $z'$;\\$e = 127 - z'$};
+      \draw[arr] (6.72,-0.45) -- (nrm.west);
+      \draw[arr] (nrm.east) -- (9.68,-0.45);
+
+      \node[box, text width=2.5cm] (rnd) at (11.4,-0.45)
+      {Round to nearest,\\ties to even;\\overflow fix;\\pack $(s, e, f)$};
+      \draw[arr] (9.92,-0.45) -- (rnd.west);
+      \draw[arr] (rnd.east) -- (12.88,-0.45);
+
+      \coordinate (mx) at (14.2,0);
+      \draw[fill=gray!8] ($(mx)+(0,0.8)$) -- ($(mx)+(0.6,0.45)$)
+      -- ($(mx)+(0.6,-1.25)$) -- ($(mx)+(0,-1.6)$) -- cycle;
+      \draw[arr] (13.12,-0.45) -- ($(mx)+(0,-0.45)$ |- 0,-0.45);
+      \node[lbl, align=center] (byp) at (14.5,-2.7) {bypassed result\\($\pm 0$, $x$, NaN)};
+      \draw[arr] (byp.north) |- ($(mx)+(0,-1.2)$);
+      \draw[arr] ($(mx)+(0.6,-0.4)$) -- (15.88,-0.4);
+      \draw[arr] (16.12,-0.4) -- ++(0.9,0) node[right, lbl]{$\sin x$};
+      \draw[ctl] (14.5,1.3) -- ($(mx)+(0.3,0.63)$);
+
+      \draw[ctl] (-0.4,1.3) -- (17.0,1.3);
+      \node[lbl, anchor=south west, align=left] at (-0.4,1.3)
+      {valid, $k \bmod 4$, $s_x$, $s_r$,\\small flag, input class};
+      \draw[densely dotted, red!70!black] (17.0,-2.4)
+      node[right, lbl, text=red!70!black]{stall} -- (3.0,-2.4);
+      \foreach \xx in {3.6, 6.6, 9.8, 13.0, 16.0}
+      \draw[stall] (\xx,-2.4) -- (\xx,-2.0);
+    \end{tikzpicture}%
+  }
+  \caption{Pipeline of the reconstruction and normalization unit}
+  \label{fig:norm-unit}
+\end{figure}
+
+\paragraph{Structure of the reconstruction and normalization unit.}
+\label{pa:rec-norm-unit-struc}
+
+\begin{enumerate}[label=\textbf{Stage \arabic*.}, ref=\arabic*, leftmargin=*]
+  \item Takes the inputs from the last stage of the core and the small argument. The magnitude $m$
+    comes from $x_{40}$ if $k_0 = 1$ (cosine) or $y_{40}$ if $k_0 = 0$ (sine) for CORDIC, from
+    the table value if we use the LUT, or from the $|r| \cdot \pi/2$ when the small flag is set and
+    we need the sine. The final sign of the output is $s = s_{x} \oplus k_{1} \oplus (s_{r} \wedge \neg k_{0})$ (\cref{sec:normalization}, Sign of the result).
+  \item Count the number of zeros $z'$, from the integer bit.
+  \item Shift left by $z'$, and set $e = 127 - z'$. Counting from the integer bit also
+    handles $m = 1.0$ ($\cos 0$) and for $m < 1$ it equals \cref{eq:norm-exponent} ($z' = z + 1$).
+  \item Rounding to the nearest, then pack ($s$, $e$, $f$) (\cref{sec:normalization}).
+  \item Finally, the input class selects the computeed or the bypassed result.
+    For NaN inputs and $\pm \infty$ we output a single NaN pattern.
+\end{enumerate}
