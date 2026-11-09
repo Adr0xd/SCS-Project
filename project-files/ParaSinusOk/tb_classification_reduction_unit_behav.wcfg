@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<wave_config>
+   <wave_state>
+   </wave_state>
+   <db_ref_list>
+      <db_ref path="tb_classification_reduction_unit_behav.wdb" id="1">
+         <top_modules>
+            <top_module name="tb_classification_reduction_unit" />
+         </top_modules>
+      </db_ref>
+   </db_ref_list>
+   <zoom_setting>
+      <ZoomStartTime time="10.412 ns"></ZoomStartTime>
+      <ZoomEndTime time="149.313 ns"></ZoomEndTime>
+      <Cursor1Time time="58.212 ns"></Cursor1Time>
+   </zoom_setting>
+   <column_width_setting>
+      <NameColumnWidth column_width="117"></NameColumnWidth>
+      <ValueColumnWidth column_width="66"></ValueColumnWidth>
+   </column_width_setting>
+   <WVObjectSize size="10" />
+   <wvobject type="logic" fp_name="/tb_classification_reduction_unit/clk">
+      <obj_property name="ElementShortName">clk</obj_property>
+      <obj_property name="ObjectShortName">clk</obj_property>
+   </wvobject>
+   <wvobject type="logic" fp_name="/tb_classification_reduction_unit/rst">
+      <obj_property name="ElementShortName">rst</obj_property>
+      <obj_property name="ObjectShortName">rst</obj_property>
+   </wvobject>
+   <wvobject type="logic" fp_name="/tb_classification_reduction_unit/en">
+      <obj_property name="ElementShortName">en</obj_property>
+      <obj_property name="ObjectShortName">en</obj_property>
+   </wvobject>
+   <wvobject type="logic" fp_name="/tb_classification_reduction_unit/valid_in">
+      <obj_property name="ElementShortName">valid_in</obj_property>
+      <obj_property name="ObjectShortName">valid_in</obj_property>
+   </wvobject>
+   <wvobject type="logic" fp_name="/tb_classification_reduction_unit/valid_out">
+      <obj_property name="ElementShortName">valid_out</obj_property>
+      <obj_property name="ObjectShortName">valid_out</obj_property>
+   </wvobject>
+   <wvobject type="array" fp_name="/tb_classification_reduction_unit/x_in">
+      <obj_property name="ElementShortName">x_in[31:0]</obj_property>
+      <obj_property name="ObjectShortName">x_in[31:0]</obj_property>
+      <obj_property name="Radix">REALRADIX</obj_property>
+      <obj_property name="radix_realType">FLOATINGPOINTRADIX</obj_property>
+      <obj_property name="radix_fractionWidth">24</obj_property>
+      <obj_property name="radix_otherWidth">8</obj_property>
+   </wvobject>
+   <wvobject type="array" fp_name="/tb_classification_reduction_unit/x_out">
+      <obj_property name="ElementShortName">x_out[31:0]</obj_property>
+      <obj_property name="ObjectShortName">x_out[31:0]</obj_property>
+      <obj_property name="Radix">REALRADIX</obj_property>
+      <obj_property name="radix_realType">FLOATINGPOINTRADIX</obj_property>
+      <obj_property name="radix_fractionWidth">24</obj_property>
+      <obj_property name="radix_otherWidth">8</obj_property>
+   </wvobject>
+   <wvobject type="array" fp_name="/tb_classification_reduction_unit/side_out">
+      <obj_property name="ElementShortName">side_out[7:0]</obj_property>
+      <obj_property name="ObjectShortName">side_out[7:0]</obj_property>
+      <obj_property name="Radix">BINARYRADIX</obj_property>
+   </wvobject>
+   <wvobject type="array" fp_name="/tb_classification_reduction_unit/z_out">
+      <obj_property name="ElementShortName">z_out[45:0]</obj_property>
+      <obj_property name="ObjectShortName">z_out[45:0]</obj_property>
+      <obj_property name="Radix">REALRADIX</obj_property>
+      <obj_property name="radix_realType">SIGNEDFIXEDPOINTRADIX</obj_property>
+      <obj_property name="radix_fractionWidth">44</obj_property>
+      <obj_property name="radix_otherWidth">0</obj_property>
+   </wvobject>
+   <wvobject type="array" fp_name="/tb_classification_reduction_unit/rsmall_out">
+      <obj_property name="ElementShortName">rsmall_out[47:0]</obj_property>
+      <obj_property name="ObjectShortName">rsmall_out[47:0]</obj_property>
+   </wvobject>
+</wave_config>

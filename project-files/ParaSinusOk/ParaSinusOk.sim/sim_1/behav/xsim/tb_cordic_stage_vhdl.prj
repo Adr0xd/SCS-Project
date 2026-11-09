@@ -1,0 +1,7 @@
+# compile vhdl design source files
+vhdl2008 xil_defaultlib  \
+"../../../../ParaSinusOk.srcs/sources_1/new/cordic_stage.vhd" \
+"../../../../ParaSinusOk.srcs/sources_1/new/tb_cordic_stage.vhd" \
+
+# Do not sort compile order
+nosort
