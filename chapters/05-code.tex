@@ -1,32 +1,168 @@
 % !TEX root = ../main.tex
 
+\begingroup
+\makeatletter
+\patchcmd{\@makechapterhead}{\vspace*{50\p@}}{\vspace*{0\p@}}{}{}
+\makeatother
 \chapter{Implementation}
 \label{ch:implementation}
+\endgroup
+
+\section{Tools and language}
+\label{sec:tools}
+
+This design is implemented in VHDL 2008 and targets the Nexys A7-50T development board.
+All signals are \lstinline|STD_LOGIC_VECTOR| and arithmetic operations (addition, subtraction,
+multiplications, comparisons) are handled through the \lstinline|IEEE.NUMERIC_STD_UNSIGNED|
+package (supported only in VHDL 2008). Vivado 2022.2 is used for simulation, synthesis and programming the board.
 
 \section{Input classification and range reduction unit}
 \label{sec:classification_rr}
 
-The Input classification and range reduction units are merged, as mentioned in \cref{sec:range-red-unit}.
-They represent the first block of the pipeline and the
+The input classification and range reduction units are implemented as one entity because
+both use the same unpacked fields (see \cref{sec:range-red-unit}).
+
+\subsection{The entity}
+\label{subsec:icrr-entity}
+The unit takes the inputs \lstinline|x_in| and \lstinline|valid_in| and outputs the side information as an 8-bit \lstinline|STD_LOGIC_VECTOR|
+rather than separate outputs for cleaner assignments in the pipeline (\cref{lst:classification_reduction_unit}), together with the
+\lstinline|z_out| for the core, \lstinline|rsmall_out| for the small path and \lstinline|x_out|
+for the bypass path. The \lstinline|valid_out| output bit marks which output cycles hold a real result.
 
 \begin{lstlisting}[caption = {Input classification and range reduction entity declaration}, label = {lst:classification_reduction_unit}]
 ENTITY classification_reduction_unit IS
     PORT (
-        clk : IN STD_LOGIC;
-        rst : IN STD_LOGIC;
-        en : IN STD_LOGIC;
+        clk : IN STD_LOGIC; rst : IN STD_LOGIC; en : IN STD_LOGIC;
         x_in : IN STD_LOGIC_VECTOR(31 DOWNTO 0);
         valid_in : IN STD_LOGIC;
+
+        side_info_out : OUT STD_LOGIC_VECTOR(7 DOWNTO 0);
+        -- side_info_out bits significance:
         -- 7 = sign_r;
         -- 6 = sign_x;
         -- 5:4 = kmod4;
         -- 3:1 = input_cls
-        -- 0: small input flag
-        side_info_out : OUT STD_LOGIC_VECTOR(7 DOWNTO 0);
+        -- 0 = small input flag
         x_out : OUT STD_LOGIC_VECTOR(31 DOWNTO 0);
         z_out : OUT STD_LOGIC_VECTOR(45 DOWNTO 0);      -- |r|, 2 int + 44 frac bits
         rsmall_out : OUT STD_LOGIC_VECTOR(47 DOWNTO 0); -- |r| bits 2^-13 .. 2^-60
         valid_out : OUT STD_LOGIC
     );
 END classification_reduction_unit;
+\end{lstlisting}
+
+\subsection{Pipeline stages}
+\label{subsec:icrr-stages}
+
+\paragraph{Stage 1.}
+The first stage classifies the input and gives a 3-bit encoding that covers the six
+classes, as the case when $|x| \le \pi/4$ can be treated as a normal number, with $k = 0$
+(\cref{lst:icrr-stage1}). Comparing the exponent with $115$ detects detects the tiny normal numbers
+with $ |x| < 2^{-12}$ (the bias $127 - 12 = 115$, see \cref{sec:input-classification}, item 3).
+
+The order of the \texttt{IF/ELSIF} blocks is important to check the inputs by priority.
+Zero and subnormals have exponent $0$, which is also below 115.
+If the \lstinline|x_exp < 115| test came first, they would be classified as tiny.
+Exponents $255$ and $0$ are tested first, therefore the tiny test sees only normal numbers.
+
+At the same time, the significand $M$ is prepared by adding the hidden $1$ bit back.
+
+\begin{lstlisting}[caption = {First stage -- classification process logic}, label = {lst:icrr-stage1}]
+-- unpack input
+x_sign <= x_in(31);    x_exp <= x_in(30 DOWNTO 23);    x_frac <= x_in(22 DOWNTO 0);
+-- process
+IF x_exp = "11111111" THEN
+    IF x_frac = 0 THEN stage1_class <= "100"; -- infinity
+    ELSE               stage1_class <= "101"; -- NaN
+    END IF;
+ELSIF x_exp = "00000000" THEN
+    IF x_frac = 0 THEN stage1_class <= "000"; -- zero
+    ELSE               stage1_class <= "001"; -- subnormal
+    END IF;
+ELSIF x_exp < 115 THEN stage1_class <= "010"; -- tiny, |x| < 2^-12
+ELSE                   stage1_class <= "111"; -- normal
+END IF;
+stage1_M <= '1' & x_frac;
+stage1_sign_x <= x_sign;
+\end{lstlisting}
+
+\vspace{-6pt}
+\paragraph{Stage 2.}
+The second stage of the unit computes the window needed for the $x \cdot 2/\pi$ multiplication (\cref{lst:icrr-stage2}).
+The windows are stored in an array of $256$ entries, with $82$ bits each, synthesized as a
+Read Only Memory.
+
+Each entry of the table has 82 bits: 2 integer bits, which give $k \bmod 4$, and 80
+fractional bits. The number of fractional bits follows from the cancellation described in
+\cref{sec:range-reduction}: when $x \cdot 2/\pi$ lies very close to an integer, the leading
+bits of $r$ cancel out, and the remaining bits must still be correct. Over all binary32
+inputs, the worst case gives $|r| \approx 2^{-29}$ quarter turns, i.e.\ 29 leading zeros.
+Since the result needs about 27 correct bits after the first non-zero bit of $r$ (24 bits of
+the significand and a few bits for rounding), $|r|$ must be accurate to about $2^{-56}$.
+Truncating the window after the bit with weight $2^{-80}$ introduces an error below
+$2^{-80}$, which is multiplied by the significand $M < 2^{24}$, giving a total error below
+$2^{24} \cdot 2^{-80} = 2^{-56}$.
+
+\begin{lstlisting}[caption = {Second stage -- window selection}, label = {lst:icrr-stage2}]
+TYPE window_array IS ARRAY (0 TO 255) OF STD_LOGIC_VECTOR(81 DOWNTO 0);
+CONSTANT WINDOW : window_array := (
+    ...
+    "0010100010111110011000...0011111110000100111", -- e = 150 (2/pi itself), 82 bits
+    ...
+);
+...
+stage2_W <= WINDOW(to_integer(stage1_exp));
+stage2_sign_x <= stage1_sign_x;
+\end{lstlisting}
+
+\newpage
+
+\paragraph{Stage 3.}
+The third stage multiplies the significand $M$ by the selected window in the previous
+stage, outputting $x \cdot 2/\pi$ (\cref{lst:icrr-stage3}).
+
+This is done by multiplying the High and Low parts
+in parallel, thus halving the critical path. Only the lower $82$ bits are kept,
+because higher bits are multiples of $4$.
+
+\begin{lstlisting}[caption = {Third stage -- multiplication}, label = {lst:icrr-stage3}]
+-- stage 3a - parallel multiplication
+stage3a_pp_hi <= stage2_M * stage2_W(81 DOWNTO 41);
+stage3a_pp_lo <= stage2_M * stage2_W(40 DOWNTO 0);
+stage3a_sign_x <= stage2_sign_x;
+
+-- stage 3b - final product reconstruction
+stage3b_prod <= (stage3a_pp_hi(40 DOWNTO 0) & (40 DOWNTO 0 => '0'))
+              + ((16 DOWNTO 0 => '0') & stage3a_pp_lo);
+stage3b_sign_x <= stage3a_sign_x;
+\end{lstlisting}
+
+\paragraph{Stage 4.}
+The last stage of the input classification and range reduction unit takes the product
+$P = x \cdot 2/\pi$ and rounds $k$ to the nearest integer depending on which multiple of
+$\pi/2$ the product is closest to. If the first bit after the decimal point of $P$ (with
+weight $0.5$) is \lstinline|'0'|, the nearest integer is the integer part itself
+(bits $81$-$80$ of $P$). Otherwise, $k$ is rounded up .
+On $2$ bits, $3+1$ wraps to $0$, so this is exactly mod $4$.
+
+When rounding down, $|r|$ is the fraction and $s_r = 0$; when rounding up, $|r| = 1 - \text{fraction}$
+(computed as \lstinline|0 - fraction| on 80 bits) and $s_r = 1$. If the first 12 fractional bits of
+$|r|$ are zero, $|r| < 2^{-12}$ and the small-argument flag is set. Finally, the top 44 bits of
+$|r|$ go to the core (\lstinline|z_out|), the bits $2^{-13}$ to $2^{-60}$ to the small-argument
+path (\lstinline|rsmall_out|), and the remaining information to \lstinline|side_info_out|.
+
+\begin{lstlisting}[caption = {Fourth stage -- rounding and outputs}, label = {lst:icrr-stage4}]
+IF stage3b_prod(79) = '0' THEN       -- fraction < 0.5
+    abs_r := stage3b_prod(79 DOWNTO 0);
+    kmod4 := stage3b_prod(81 DOWNTO 80);
+    v_sign_r := '0';
+ELSE                                 -- fraction >= 0.5: round k up
+    abs_r := 0 - stage3b_prod(79 DOWNTO 0);
+    kmod4 := stage3b_prod(81 DOWNTO 80) + 1;
+    v_sign_r := '1';
+END IF;
+...
+z_out      <= "00" & abs_r(79 DOWNTO 36);
+side_info_out <= v_sign_r & stage3b_sign_x & kmod4 & stage3b_class & small_flag;
+rsmall_out <= abs_r(67 DOWNTO 20);
 \end{lstlisting}

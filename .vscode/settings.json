@@ -3,12 +3,17 @@
     "latex-workshop.view.pdf.viewer": "tab",
     "latex-workshop.latex.autoClean.run": "onBuilt",
     "latex-workshop.message.badbox.show": "none",
-
     "latex-workshop.formatting.latex": "tex-fmt",
     "latex-workshop.formatting.tex-fmt.path": "/opt/homebrew/bin/tex-fmt",
-
     "[latex]": {
         "editor.defaultFormatter": "James-Yu.latex-workshop",
         "editor.formatOnSave": true
+    },
+    "files.watcherExclude": {
+        "**/venv/**": true,
+        "**/__pycache__/**": true
+    },
+    "files.exclude": {
+        "**/__pycache__": true
     }
 }

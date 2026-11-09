@@ -129,14 +129,15 @@ The pipeline of the unit is shown in \cref{fig:range-reduction-unit}.
         font=\footnotesize},
         lbl/.style={font=\footnotesize}
       ]
-      \foreach \xx/\n in {3.0/1, 7.0/2, 11.4/3, 15.6/4} {
+      \foreach \xx/\n in {3.0/1, 7.0/2, 9.4/3, 11.8/4, 16.0/5} {
         \draw[fill=blue!10] (\xx-0.12,-2.0) rectangle (\xx+0.12,1.6);
         \node[lbl] at (\xx,1.85) {R\n};
       }
       \node[lbl, text=gray] at (1.3,2.25)  {stage 1: unpack};
       \node[lbl, text=gray] at (5.0,2.25)  {stage 2: window table};
-      \node[lbl, text=gray] at (9.2,2.25)  {stage 3: multiplication};
-      \node[lbl, text=gray] at (13.5,2.25) {stage 4: extraction of $k$ and $r$};
+      \node[lbl, text=gray] at (8.2,2.25)  {stage 3a};
+      \node[lbl, text=gray] at (10.6,2.25) {stage 3b};
+      \node[lbl, text=gray] at (13.9,2.25) {stage 4: extraction of $k$ and $r$};
 
       \node[lbl, align=right, anchor=east] (xin) at (-0.1,-0.4) {$x$\\$(s_x, e, f)$};
       \node[box, minimum height=1.4cm, text width=1.5cm] (unp) at (1.2,-0.4)
@@ -151,26 +152,30 @@ The pipeline of the unit is shown in \cref{fig:range-reduction-unit}.
       \draw[arr] (3.12,-0.75) -- node[below, lbl]{$M$} (6.88,-0.75);
       \draw[arr] (win.east) -- node[above, lbl]{$W$} (6.88,0.25);
 
-      \node[box, minimum height=1.9cm, text width=2.6cm] (mul) at (9.2,-0.25)
-      {Multiplication\\$M \times W$\\[2pt]\scriptsize(divided over\\several stages)};
-      \draw[arr] (7.12,0.25) -- ($(mul.west)+(0,0.5)$);
-      \draw[arr] (7.12,-0.75) -- ($(mul.west)+(0,-0.5)$);
-      \draw[arr] (mul.east) -- (11.28,-0.25);
-      \node[lbl, above] at (10.95,-0.2) {$x \cdot \tfrac{2}{\pi}$};
+      \node[box, minimum height=1.9cm, text width=1.65cm] (mula) at (8.2,-0.25)
+      {Partial\\products\\[2pt]$M \times W_{hi}$\\$M \times W_{lo}$};
+      \draw[arr] (7.12,0.25) -- ($(mula.west)+(0,0.5)$);
+      \draw[arr] (7.12,-0.75) -- ($(mula.west)+(0,-0.5)$);
+      \draw[arr] (mula.east) -- (9.28,-0.25);
 
-      \node[box, minimum height=1.9cm, text width=3.0cm] (ext) at (13.5,-0.25)
+      \node[box, minimum height=1.9cm, text width=1.55cm] (mulb) at (10.6,-0.25)
+      {Sum of the\\partial\\products\\[2pt]$= x \cdot \tfrac{2}{\pi}$};
+      \draw[arr] (9.52,-0.25) -- (mulb.west);
+      \draw[arr] (mulb.east) -- (11.68,-0.25);
+
+      \node[box, minimum height=1.9cm, text width=3.0cm] (ext) at (13.9,-0.25)
       {Split into integer\\and fractional part;\\round to nearest:\\$k \bmod 4$, $|r|$, $s_r$;\\small-argument test};
-      \draw[arr] (11.52,-0.25) -- (ext.west);
-      \draw[arr] (ext.east) -- (15.48,-0.25);
+      \draw[arr] (11.92,-0.25) -- (ext.west);
+      \draw[arr] (ext.east) -- (15.88,-0.25);
 
       \foreach \yy/\t in {0.45/{$k \bmod 4$}, 0.0/{$|r|$}, -0.45/{$s_r$}, -0.9/{small}}
-      \draw[arr] (15.72,\yy-0.15) -- ++(0.9,0) node[right, lbl]{\t};
+      \draw[arr] (16.12,\yy-0.15) -- ++(0.9,0) node[right, lbl]{\t};
 
-      \draw[ctl] (-0.4,1.3) -- (16.6,1.3);
+      \draw[ctl] (-0.4,1.3) -- (17.0,1.3);
       \node[lbl, anchor=south west] at (-0.4,1.3) {valid, $s_x$, input class};
-      \draw[densely dotted, red!70!black] (16.6,-2.4)
+      \draw[densely dotted, red!70!black] (17.0,-2.4)
       node[right, lbl, text=red!70!black]{stall} -- (2.4,-2.4);
-      \foreach \xx in {3.0, 7.0, 11.4, 15.6}
+      \foreach \xx in {3.0, 7.0, 9.4, 11.8, 16.0}
       \draw[stall] (\xx,-2.4) -- (\xx,-2.0);
     \end{tikzpicture}%
   }
@@ -181,14 +186,18 @@ The pipeline of the unit is shown in \cref{fig:range-reduction-unit}.
 \paragraph{Structure of the range reduction unit.}
 \label{pa:rru-struc}
 
-The unit consists of four stages:
+The unit consists of five stages, since the multiplication is divided into two stages:
 \begin{enumerate}[label=\textbf{Stage \arabic*.}, ref=\arabic*, leftmargin=*]
   \item The input is unpacked, and the significand $M = 1.f$ is built as a 24-bit integer (\cref{sec:range-reduction}).
   \item The exponent selects a precomputed window $W$ of the bits of $2/\pi$. We store
     these values in a lookup-table with 256 entries instead of using a shifter~\cite{ly2026payne}.
-  \item We multiply $M \times W$ which gives $x \cdot 2/\pi$. This is the widest operation of the
-    design, so it is going to be divided into more stages, as discussed in \cref{sec:pipeline}.
-  \item The integer part of the multiplication gives $k \bmod 4$. If the fraction is greater
+  \item[\textbf{Stage 3a.}] The window is split into a high part $W_{hi}$ and a low part $W_{lo}$, and the
+    two partial products $M \times W_{hi}$ and $M \times W_{lo}$ are computed in parallel. The
+    multiplication is the widest operation of the design, so it is divided into two stages, as
+    discussed in \cref{sec:pipeline}.
+  \item[\textbf{Stage 3b.}] The two partial products are added, with $M \times W_{hi}$ shifted to the
+    left by the width of $W_{lo}$, which gives $x \cdot 2/\pi$.
+  \item[\textbf{Stage 4.}] The integer part of the multiplication gives $k \bmod 4$. If the fraction is greater
     or equal to 0.5, $k$ is getting rounded up and $|r| = 1 - fraction$. The small argument
     test checks whether the first 12 fractional bits of $|r|$ are all zero.
 \end{enumerate}
